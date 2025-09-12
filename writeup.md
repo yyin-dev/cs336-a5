@@ -64,3 +64,14 @@ Thus,
 $$
 p(x)log(p(x)) = e^{(x - \text{logsumexp}(x))} (x - \text{logsumexp}(x))
 $$
+
+## problem (sft_microbatch_train_step)
+
+What's the loss function in SFT? Why do we use "negative log likelihood "?
+
+* "likelihood" is just probability. LLM products probabilities at each generation step. The goal is to maximize the probability that the model generates the label response, which is the product of the probabilities that the model generates each token in the label.
+* "negative": Because gradient descent minimizes the loss while we want to maximize the probability, we use the negative probability as loss. 
+* "log": The process of multiplying a sequence of probabilities is numerically unstable and can cause underflow, using log probabilities turns multiplication into sum. 
+
+How is cross-entropy loss related to negative log likelihood? Cross-entropy loss in this case is another name for negative log likelihood. Cross-entropy measures the difference between two distributions. When you apply cross-entropy loss with a "groud-truth" distribution that's a one-hot vector, the formula simplifies to negative log likelihood.
+

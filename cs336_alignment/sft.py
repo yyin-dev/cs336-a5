@@ -150,3 +150,50 @@ def masked_normalize(
 
     s /= normalize_constant
     return s
+
+
+def sft_microbatch_train_step(
+    policy_log_probs: torch.Tensor,
+    response_mask: torch.Tensor,
+    gradient_accumulation_steps: int,
+    normalize_constant: float,
+) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    """
+    Input:
+        policy_log_probs: (batch_size, sequence_length). Per-token log probabilities from the SFT policy being trained.
+        response_mask: (batch_size, sequence_length). 1 for response tokens, 0 for prompt/padding
+        gradient_accumulation_steps
+        normalize_constant
+
+    Returns:
+        tuple[torch.Tensor, dict[str, torch.Tensor]]
+          loss: scalar tensor
+          metadata: dict with metadata from the loss call, and any other stat we might we to log
+    """
+
+    # policy_log_probs is the log probabilities the model generates labels based on
+    # prompts (see `get_response_log_probs`). Thus, we want to maximize it, so
+    # the loss should be the negated sum of log probs (negative log likelihood).
+    #
+    # To compute the probability of a sequence, you multipy the per-token
+    # probabilities. However, this is numerically unstable for long sequences
+    # because multiply a sequence of numbers < 1 produces a very small number.
+    # Log probability turns multiplication into sum and is numerically more stable.
+    #
+    # Cross-entropy loss in this case is another name for negative log likelihood.
+    # Cross-entropy measures the difference between two distributions. When you
+    # apply cross-entropy loss with a "groud-truth" distribution that's a one-hot
+    # vector, the formula simplifies to negative log likelihood.
+
+    B = policy_log_probs.shape[0]
+
+    loss = (
+        -policy_log_probs[response_mask].sum()
+        / normalize_constant
+        / gradient_accumulation_steps
+        / B
+    )
+
+    loss.backward()
+
+    return (loss, {})
