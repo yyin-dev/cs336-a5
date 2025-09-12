@@ -1,8 +1,3 @@
-import os
-
-# Configure vLLM download directory
-os.environ["HF_HOME"] = "~/Desktop/cs336/Assignment5/hf_download"
-
 import json
 from vllm import LLM, SamplingParams
 from drgrpo_grader import r1_zero_reward_fn
