@@ -111,3 +111,42 @@ def get_response_log_probs(
         res["token_entropy"] = entropy
 
     return res
+
+
+def masked_normalize(
+    tensor: torch.Tensor,
+    mask: torch.Tensor,
+    normalize_constant: float,
+    dim: int | None = None,
+) -> torch.Tensor:
+    """
+    Input:
+        tensor
+        mask: same shape as [tensor]
+        dim: int | None. When None, sum along all dimensions.
+    """
+
+    # tensor[mask] performs boolean indexing, and returns a 1-D tensor
+    # containing selected items (even if tensor and mask are not 1D!).
+    # This is equivalent to torch.masked_select
+    #
+    # To keep the shape of `tensor` and zero out entries where `mask` is 0,
+    # there are several approaches:
+    # 1. tensor * mask
+    # 2. torch.where(mask, tensor, torch.zeros_like(tensor))
+    # 3. torch[~mask] = 0
+    # 4. tensor.masked_fill_(~mask, 0)
+    #
+    # It's a bit weird that tensor[mask] returns 1d, while tensor[~mask] = 0
+    # works. Both are using the bracket operator?
+    # Actually the two operator are not the same; one is a selection operation,
+    # and the other is an assignment operation.
+
+    tensor[~mask] = 0
+    if dim is None:
+        s = tensor.sum()
+    else:
+        s = torch.sum(tensor, dim=dim)
+
+    s /= normalize_constant
+    return s
