@@ -1,7 +1,8 @@
 import torch
 from transformers.tokenization_utils import PreTrainedTokenizer
 from transformers.utils.generic import PaddingStrategy
-from einops import einsum
+from transformers.modeling_utils import PreTrainedModel
+from einops import rearrange
 
 
 def tokenize_prompt_and_output(
@@ -76,3 +77,37 @@ def compute_entropy(logits: torch.Tensor) -> torch.Tensor:
     logsumexp = torch.logsumexp(logits, dim=-1, keepdim=True)
     diff = logits - logsumexp
     return -torch.sum(torch.exp(diff) * diff, dim=-1)
+
+
+def get_response_log_probs(
+    model: PreTrainedModel,
+    input_ids: torch.Tensor,
+    labels: torch.Tensor,
+    return_token_entropy: bool = False,
+) -> dict[str, torch.Tensor]:
+    """
+    Args
+        model
+        input_ids: (batch_size, sequence_length)
+        labels: (batch_size, sequence_length)
+        return_token_entropy: if true, also return per-token entropy by calling compute_entropy.
+
+    Returns
+        "log_probs": shape (batch_size, sequence_length), *per-token* conditional log-probs. log(p_theta(x_t | x_<t))
+        "token_entropy": optional, shape (batch_size, sequence_length), per-token entropy for each position
+    """
+    # log(p(x)) = log(softmax(logits)) = logits - logsumexp(logits)
+    logits = model(input_ids).logits  # (b, s, V)
+    log_probs = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
+    log_probs = torch.gather(
+        log_probs, dim=-1, index=rearrange(labels, "b (s d) -> b s d", d=1)
+    )
+    log_probs = rearrange(log_probs, "b s d -> b (s d)", d=1)
+
+    res = {"log_probs": log_probs}
+
+    if return_token_entropy:
+        entropy = compute_entropy(logits)
+        res["token_entropy"] = entropy
+
+    return res
