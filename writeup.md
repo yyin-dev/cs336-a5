@@ -39,3 +39,28 @@ Observed cases where the format reward is 1 but the answer reward is 0: I observ
 
 * Format correct ratio: 258/1319 = 19.5%. 
 * Answer correct ratio: 78 / 1319 =5.9%
+
+
+
+## problem (compute_entropy)
+
+Starting with softmax:
+$$
+p(x) = \frac{e^{\text{logits}(x)}}{\sum_{x \in X} e^{\text{logits}(x)}}
+$$
+Taking the logarithm:
+$$
+\log p(x) = \log \frac{e^{\text{logits}(x)}}{\sum_{x \in X} e^{\text{logits}(x)}} = \log e^{\text{logits}(x)} - \log \sum_{x \in X} e^{\text{logits}(x)} = \text{logits}(x) - \text{logsumexp}(x)
+$$
+Therefore:
+$$
+\boxed{\log p(x) = x - \text{logsumexp}(x)}
+$$
+And equivalently:
+$$
+\boxed{p(x) = e^{(x - \text{logsumexp}(x))}}
+$$
+Thus, 
+$$
+p(x)log(p(x)) = e^{(x - \text{logsumexp}(x))} (x - \text{logsumexp}(x))
+$$

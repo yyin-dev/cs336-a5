@@ -1,6 +1,7 @@
 import torch
 from transformers.tokenization_utils import PreTrainedTokenizer
 from transformers.utils.generic import PaddingStrategy
+from einops import einsum
 
 
 def tokenize_prompt_and_output(
@@ -62,3 +63,16 @@ def tokenize_prompt_and_output(
     response_mask = response_mask[:, 1:]
 
     return {"input_ids": input_ids, "labels": labels, "response_mask": response_mask}
+
+
+def compute_entropy(logits: torch.Tensor) -> torch.Tensor:
+    """
+    Args:
+      logits: (batch_size, sequence_length, vocab_size)
+
+    Returns:
+       (batch_size, sequence_length)
+    """
+    logsumexp = torch.logsumexp(logits, dim=-1, keepdim=True)
+    diff = logits - logsumexp
+    return -torch.sum(torch.exp(diff) * diff, dim=-1)
