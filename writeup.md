@@ -1,20 +1,44 @@
 ## Problem (math_baseline)
 
-(a) `math_baseline.py`. I evaluated on GSM8k test set, using `r1_zero_reward_function`
+(a) `math_baseline.py`. I evaluated on GSM8k and MATH test set, using `r1_zero_reward_function`.
 
-With `fast=True`: 
+* GSM8k:
 
-* format=1, answer=1, reward=1: 0
-* format=1, answer=0, reward=0: 258
-* format=0, answer=0, reward=0: 1061.
+  * With `fast=True`: 
 
-With `fast=False`:
+    * format=1, answer=1, reward=1: 0
 
-* format=1, answer=1, reward=1: 78
-* format=1, answer=0, reward=0: 180
-* format=0, answer=0, reward=0: 1061.
+    * format=1, answer=0, reward=0: 258
 
-With `fast=True`, sometimes the reward function doesn't reward correct-looking responses, so it's important to use `fast=False`. From this point on, use `fast=False` unless otherwise specified. 
+    * format=0, answer=0, reward=0: 1061.
+
+  * With `fast=False`:
+
+    * format=1, answer=1, reward=1: 78
+
+    * format=1, answer=0, reward=0: 180
+
+    * format=0, answer=0, reward=0: 1061.
+
+* MATH:
+
+  * With `fast=True`: 
+
+    * format=1, answer=1, reward=1: 34
+
+    * format=1, answer=0, reward=0: 173
+
+    * format=0, answer=0, reward=0: 993.
+
+  * With `fast=False`:
+
+    * format=1, answer=1, reward=1: 63
+
+    * format=1, answer=0, reward=0: 144
+
+    * format=0, answer=0, reward=0: 993.
+
+`fast=True/False` has significant impact on GSM8k but less so on MATH. From this point on we will assume `fast=True`.
 
 (b) Observed cases where the format reward is zero: 
 
@@ -35,12 +59,10 @@ Observed cases where the format reward is 1 but the answer reward is 0: I observ
 {"question": "A wooden bridge can carry no more than 5000 pounds. A delivery truck filled with identical boxes, each weighing 15 pounds, will pass over the bridge. The combined weight of the driver and the empty truck is 3755 pounds. What is the maximum number of boxes which can be loaded onto the truck while not exceeding the bridge's weight limit?", "truth": "The boxes can weigh up to 5000 pounds - 3755 pounds = <<5000-3755=1245>>1245 pounds in total.\nThere can be 1245 / 15 = <<1245/15=83>>83 boxes loaded onto the truck without exceeding the bridge's weight limit.\n#### 83", "response": " The truck's weight without boxes is 3755 pounds. The remaining capacity of the bridge is 5000 - 3755 = 1245 pounds. Each box weighs 15 pounds, so the maximum number of boxes that can be loaded is 1245 / 15 = 83 boxes. </think> <answer> 83 boxes (answer format) </answer>", "reward": {"format_reward": 1.0, "answer_reward": 0.0, "reward": 0.0}}
 ```
 
-(c) On GSM8k test set: 
+(c) On MATH test set:
 
-* Format correct ratio: 258/1319 = 19.5%. 
-* Answer correct ratio: 78 / 1319 =5.9%
-
-
+* Format correct ratio: 207/1200=17.3%
+* Answer correct ration: 34/1200=2.83%.
 
 ## problem (compute_entropy)
 
