@@ -92,7 +92,9 @@ def main():
         include_stop_str_in_output=True,
     )
 
-    reward_fn = lambda x, y: r1_zero_reward_fn(x, y, fast=False)
+    # Setting fast=True/False doesn't affect format_reward, but does affect
+    # answer_reward. For MATH baseline, fast=False almost 2x answer_reward.
+    reward_fn = lambda x, y: r1_zero_reward_fn(x, y)
     result = evaluate_vllm(llm, reward_fn, prompts, ground_truths, sampling_params)
 
     # Save to file for analysis
