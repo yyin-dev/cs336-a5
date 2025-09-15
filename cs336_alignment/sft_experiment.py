@@ -118,6 +118,10 @@ def get_device(mode: str):
     return "cpu"
 
 
+def ceiling_dev(x, y):
+    return (x + y - 1) // y
+
+
 def main():
     parser = ArgumentParser()
     parser.add_argument("--batch-size", type=int, required=True)
@@ -168,12 +172,15 @@ def main():
     print(f"Microbatch size: {microbatch_size}")
 
     # sft loop
-    num_steps = (args.unique_examples + microbatch_size - 1) // microbatch_size
+    num_steps = ceiling_dev(args.unique_examples, microbatch_size)
+    num_optimizer_steps = ceiling_dev(args.unique_examples, args.batch_size)
 
     opt = AdamW(model.parameters(), lr=args.lr)
 
     warmup_steps = max(1, num_steps // 10)  # 10% warmup
-    lr_scheduler = CosineWarmupScheduler(opt, warmup_steps, num_steps, args.lr, 1e-7)
+    lr_scheduler = CosineWarmupScheduler(
+        opt, warmup_steps, num_optimizer_steps, args.lr, 1e-7
+    )
 
     # TODO: log generation in the loop
     for step in range(num_steps):
