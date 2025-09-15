@@ -142,7 +142,7 @@ def masked_normalize(
     # Actually the two operator are not the same; one is a selection operation,
     # and the other is an assignment operation.
 
-    tensor[~mask] = 0
+    tensor = tensor.masked_fill(mask == 0, 0)
     if dim is None:
         s = tensor.sum()
     else:
@@ -188,12 +188,11 @@ def sft_microbatch_train_step(
     B = policy_log_probs.shape[0]
 
     loss = (
-        -policy_log_probs[response_mask].sum()
-        / normalize_constant
+        -masked_normalize(policy_log_probs, response_mask, normalize_constant, dim=None)
         / gradient_accumulation_steps
         / B
     )
 
     loss.backward()
 
-    return (loss, {})
+    return (loss, {"loss": loss})
