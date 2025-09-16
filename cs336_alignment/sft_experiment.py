@@ -7,12 +7,13 @@ uv run cs336_alignment/sft_experiment.py \
     --lr 1e-4
 """
 
-from vllm import LLM
+from vllm import LLM, SamplingParams
 from vllm.model_executor import set_random_seed as vllm_set_random_seed
 from unittest.mock import patch
 from transformers.modeling_utils import PreTrainedModel
 from transformers.models.auto.modeling_auto import AutoModelForCausalLM
 from transformers.models.auto.tokenization_auto import AutoTokenizer
+from transformers.tokenization_utils import PreTrainedTokenizer
 from argparse import ArgumentParser
 from datasets import Dataset, load_from_disk
 import torch
@@ -26,7 +27,10 @@ from sft import (
     get_response_log_probs,
     sft_microbatch_train_step,
 )
+from math_baseline import evaluate_vllm
+from drgrpo_grader import r1_zero_reward_fn
 
+QWEN = "Qwen/Qwen2.5-Math-1.5B"
 SEED = 42
 torch.manual_seed(SEED)
 random.seed(SEED)
@@ -122,13 +126,22 @@ def ceiling_dev(x, y):
     return (x + y - 1) // y
 
 
+def sample(train_input_ids, train_labels, train_response_mask, index, device):
+    input_ids = torch.index_select(train_input_ids, 0, index).to(device)
+    labels = torch.index_select(train_labels, 0, index).to(device)
+    response_mask = torch.index_select(train_response_mask, 0, index).to(device)
+    return (input_ids, labels, response_mask)
+
+
 def main():
     parser = ArgumentParser()
     parser.add_argument("--batch-size", type=int, required=True)
     parser.add_argument("--unique-examples", type=int, required=True)
     parser.add_argument("--train-set", type=str, required=True)
+    parser.add_argument("--test-set", type=str, required=True)
     parser.add_argument("--gradient-accumulation-steps", type=int, required=True)
     parser.add_argument("--lr", type=float, required=True)
+    parser.add_argument("--checkpoint-dir", type=str, required=True)
     args = parser.parse_args()
 
     # wandb
@@ -143,33 +156,56 @@ def main():
 
     # device
     train_device = get_device("train")
-    print(f"train_device: {train_device}")
+    eval_device = get_device("eval")
+    print(f"Train device: {train_device}; Eval device: {eval_device}")
 
     # model
-    qwen = "Qwen/Qwen2.5-Math-1.5B"
-    model = AutoModelForCausalLM.from_pretrained(
-        qwen,
+    model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
+        QWEN,
         torch_dtype=torch.bfloat16,
         attn_implementation=(
             "flash_attention_2" if torch.cuda.is_available() else "sdpa"
         ),
-    )
-    model.to(train_device)
-    tokenizer = AutoTokenizer.from_pretrained(qwen)
+    ).to(train_device)
+
+    tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(QWEN)
 
     # dataset
+    # train
     train_dataset: Dataset = load_from_disk(
         args.train_set
     )  # pyright: ignore[reportAssignmentType]
     train_dataset = train_dataset.select_columns(["problem", "solution"])
-    prompt_strs = [qa["problem"] for qa in train_dataset]
-    output_strs = [qa["solution"] for qa in train_dataset]
-    tokenized = tokenize_prompt_and_output(prompt_strs, output_strs, tokenizer)
-    train_inputs_ids = tokenized["input_ids"]
-    train_labels = tokenized["labels"]
-    train_response_mask = tokenized["response_mask"]
+    train_prompt_strs = [qa["problem"] for qa in train_dataset]
+    train_output_strs = [qa["solution"] for qa in train_dataset]
+    train_tokenized = tokenize_prompt_and_output(
+        train_prompt_strs, train_output_strs, tokenizer
+    )
+    train_input_ids = train_tokenized["input_ids"]
+    train_labels = train_tokenized["labels"]
+    train_response_mask = train_tokenized["response_mask"]
+
+    # test
+    test_dataset: Dataset = load_from_disk(
+        args.test_set
+    )  # pyright: ignore[reportAssignmentType]
+    test_dataset = test_dataset.select_columns(["problem", "answer"])
+    test_prompt_strs = [qa["problem"] for qa in test_dataset]
+    test_ground_truth_strs = [qa["answer"] for qa in test_dataset]
+    eval_sampling_params = SamplingParams(
+        temperature=1.0,
+        top_p=1.0,
+        max_tokens=1024,
+        stop="</answer>",
+        include_stop_str_in_output=True,
+    )
+
     microbatch_size = max(args.batch_size // args.gradient_accumulation_steps, 1)
     print(f"Microbatch size: {microbatch_size}")
+
+    eval_model = None
+    if torch.cuda.is_available():
+        eval_model = init_vllm(QWEN, eval_device, SEED)
 
     # sft loop
     num_steps = ceiling_dev(args.unique_examples, microbatch_size)
@@ -177,7 +213,7 @@ def main():
 
     opt = AdamW(model.parameters(), lr=args.lr)
 
-    warmup_steps = max(1, num_steps // 10)  # 10% warmup
+    warmup_steps = max(1, num_optimizer_steps // 10)  # 10% warmup
     lr_scheduler = CosineWarmupScheduler(
         opt, warmup_steps, num_optimizer_steps, args.lr, 1e-7
     )
@@ -185,16 +221,16 @@ def main():
     # TODO: log generation in the loop
     for step in range(num_steps):
         print(f"Step {step}")
+        wandb_data = {}
 
-        # sampling
-        start = microbatch_size * step
-        end = microbatch_size * (step + 1)
-        input_ids = train_inputs_ids[start:end, :].to(train_device)
-        labels = train_labels[start:end, :].to(train_device)
-        response_mask = train_response_mask[start:end, :].to(train_device)
+        # random sampling
+        index = torch.randint(0, len(train_input_ids), (microbatch_size,))
+        input_ids, labels, response_mask = sample(
+            train_input_ids, train_labels, train_response_mask, index, train_device
+        )
+
         print(input_ids.shape, labels.shape, response_mask.shape)
 
-        print("Forward...")
         response_log_probs = get_response_log_probs(
             model,
             input_ids,
@@ -204,7 +240,6 @@ def main():
         # TODO: report entropy
         policy_log_probs = response_log_probs["log_probs"]
 
-        print("loss and backward...")
         loss, stat = sft_microbatch_train_step(
             policy_log_probs,
             response_mask,
@@ -217,23 +252,46 @@ def main():
         clip_grad_norm_(model.parameters(), max_norm=1.0)
 
         if (step + 1) % args.gradient_accumulation_steps == 0:
-            print("optimizer step...")
             opt.step()
             opt.zero_grad()
             lr_scheduler.step()
 
-        if (step + 1) % (4 * args.gradient_accumulation_steps) == 0:
-            # TODO: evaluation every few batches using vLLM
-            pass
+        # evaluate every few batches using vLLM
+        save_every_n_batches = 10
+        if (step + 1) % (args.gradient_accumulation_steps * save_every_n_batches) == 0:
+            print("Evaluation")
 
-        wandb_data = {
-            "step": step,
-            "lr": lr_scheduler.get_last_lr()[0],
-            "loss": loss.item(),
-        }
+            # save model to path
+            # model.save_pretrained(args.checkpoint_dir)
+            # tokenizer.save_pretrained(args.checkpoint_dir)
+
+            # eval using vLLM
+            if torch.cuda.is_available() and eval_model:
+                load_policy_into_vllm_instance(model, eval_model)
+
+                eval_res = evaluate_vllm(
+                    eval_model,
+                    r1_zero_reward_fn,
+                    test_prompt_strs,
+                    test_ground_truth_strs,
+                    eval_sampling_params,
+                )
+                eval_reward_stat = eval_res.reward_stat
+                print(eval_reward_stat)
+                wandb_data["format_mean"] = eval_reward_stat["format"]["mean"]
+                wandb_data["format_sum"] = eval_reward_stat["format"]["sum"]
+                wandb_data["answer_mean"] = eval_reward_stat["answer"]["mean"]
+                wandb_data["answer_sum"] = eval_reward_stat["answer"]["sum"]
+                wandb_data["final_mean"] = eval_reward_stat["final"]["mean"]
+                wandb_data["final_sum"] = eval_reward_stat["final"]["sum"]
+            else:
+                print("CUDA not available - skipping evaluation using vLLM")
+
+        wandb_data["step"] = step
+        wandb_data["lr"] = lr_scheduler.get_last_lr()[0]
+        wandb_data["loss"] = loss.item()
+
         wandb.log(wandb_data)
-
-        # TODO: save checkpoint
 
 
 if __name__ == "__main__":

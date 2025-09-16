@@ -11,6 +11,7 @@ from dataclasses import dataclass
 class EvalResult:
     responses: List[str]
     rewards: List[dict[str, float]]
+    reward_stat: dict[str, dict[str, float]]
 
 
 def evaluate_vllm(
@@ -36,11 +37,26 @@ def evaluate_vllm(
             f"{name}: mean {statistics.mean(rewards)}, median {statistics.median(rewards)}, sum {sum(rewards)}, min {min(rewards)}, max {max(rewards)}"
         )
 
+    reward_stat = {
+        "format": {
+            "mean": statistics.mean(format_rewards),
+            "sum": sum(format_rewards),
+        },
+        "answer": {
+            "mean": statistics.mean(answer_rewards),
+            "sum": sum(answer_rewards),
+        },
+        "final": {
+            "mean": statistics.mean(final_rewards),
+            "sum": sum(final_rewards),
+        },
+    }
+
     print_reward_stat(format_rewards, "format rewards")
     print_reward_stat(answer_rewards, "answer rewards")
     print_reward_stat(final_rewards, "final rewards")
 
-    return EvalResult(responses, rewards)
+    return EvalResult(responses, rewards, reward_stat)
 
 
 def main():

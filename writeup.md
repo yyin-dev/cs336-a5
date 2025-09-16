@@ -97,3 +97,6 @@ What's the loss function in SFT? Why do we use "negative log likelihood "?
 
 How is cross-entropy loss related to negative log likelihood? Cross-entropy loss in this case is another name for negative log likelihood. Cross-entropy measures the difference between two distributions. When you apply cross-entropy loss with a "groud-truth" distribution that's a one-hot vector, the formula simplifies to negative log likelihood.
 
+## problem (sft_experiment)
+
+![image-20250913143816985](https://raw.githubusercontent.com/yyin-dev/image_cloud/main/Picsee/image-20250913143816985_GQ5vNF.jpeg)
