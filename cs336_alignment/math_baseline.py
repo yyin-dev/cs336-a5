@@ -5,6 +5,25 @@ from argparse import ArgumentParser
 import statistics
 from typing import Callable, List
 from dataclasses import dataclass
+from datasets import load_from_disk
+
+"""
+Train
+{'problem': 'How many units long is a segment whose endpoints are $(-4,1)$ and $(1,13)$?', 
+ 'solution': 'We use the distance formula: $\\sqrt{(-4 - 1)^2 + (1 - 13)^2},$ which is $\\sqrt{25 + 144} = \\sqrt{169} = \\boxed{13}$.\n\n- OR -\n\nWe note that the points $(-4,1)$, $(1,13)$, and $(1,1)$ form a right triangle with legs of length 5 and 12. $(5,12,13)$ is a Pythagorean triple, so the hypotenuse has length $\\boxed{13}$.', 
+ 'answer': '13', 
+ 'subject': 'Algebra', 
+ 'level': 2, 
+ 'unique_id': 'test/algebra/1570.json', 
+ 'gold_solution_steps': ['We use the distance formula:', '$\\sqrt{(-4 - 1)^2 + (1 - 13)^2},$ which is $\\sqrt{25 + 144} = \\sqrt{169} = \\boxed{13}$.', '- OR - We note that the points $(-4,1)$, $(1,13)$,', 'and $(1,1)$ form a right triangle with legs of length 5 and 12. $(5,12,13)$ is a Pythagorean triple, so the hypotenuse has length $\\boxed{13}$.']
+}
+
+Test:
+{'problem': 'Convert the point $(0,3)$ in rectangular coordinates to polar coordinates.  Enter your answer in the form $(r,\\theta),$ where $r > 0$ and $0 \\le \\theta < 2 \\pi.$', 
+ 'answer': '\\left( 3, \\frac{\\pi}{2} \\right)', 
+ 'difficulty': 2.0
+}
+"""
 
 
 @dataclass
@@ -79,13 +98,8 @@ def main():
     args = parser.parse_args()
 
     # load dataset
-    qas = []
-    with open(args.dataset, "r") as f:
-        for line in f:
-            qa = json.loads(line)
-            q = qa["question"]
-            a = qa["answer"]
-            qas.append((q, a))
+    dataset = load_from_disk(args.dataset)
+    qas = [(qa["problem"], qa["answer"]) for qa in dataset]
 
     if args.limit is not None:
         qas = qas[: args.limit]
