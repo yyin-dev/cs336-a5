@@ -29,7 +29,7 @@ from sft import (
     get_response_log_probs,
     sft_microbatch_train_step,
 )
-from math_baseline import evaluate_vllm, fit_prompt
+from math_baseline import evaluate_vllm
 from drgrpo_grader import r1_zero_reward_fn
 
 QWEN = "Qwen/Qwen2.5-Math-1.5B"
@@ -40,6 +40,16 @@ random.seed(SEED)
 R1_ZERO_PROMPT = """A conversation between User and Assistant. The User asks a question, and the Assistant solves it. The Assistant first thinks about the reasoning process in the mind and then provides the User with the answer. The reasoning process is enclosed within <think> </think> and answer is enclosed within <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think> <answer> answer here </answer>.
 User: {question}
 Assistant: <think>"""
+
+R1_ZERO_OUTPUT = """ {solution} </think> <answer> {answer} </answer>"""
+
+
+def fit_prompt(prompt_template: str, question: str) -> str:
+    return prompt_template.replace("{question}", question)
+
+
+def fit_output(output_template: str, solution: str, answer: str) -> str:
+    return output_template.replace("{solution}", solution).replace("{answer}", answer)
 
 
 def cosine_lr_schedule_with_warmup(t, lr_max, lr_min, T_w, T_c):
@@ -182,9 +192,13 @@ def main():
     train_dataset: Dataset = load_from_disk(
         args.train_set
     )  # pyright: ignore[reportAssignmentType]
-    train_dataset = train_dataset.select_columns(["problem", "solution"])
-    train_prompt_strs = [qa["problem"] for qa in train_dataset]
-    train_output_strs = [qa["solution"] for qa in train_dataset]
+    train_dataset = train_dataset.select_columns(["problem", "solution", "answer"])
+    train_prompt_strs = [
+        fit_prompt(R1_ZERO_PROMPT, qa["problem"]) for qa in train_dataset
+    ]
+    train_output_strs = [
+        fit_output(R1_ZERO_OUTPUT, qa["solution"], qa["answer"]) for qa in train_dataset
+    ]
     train_tokenized = tokenize_prompt_and_output(
         train_prompt_strs, train_output_strs, tokenizer
     )
