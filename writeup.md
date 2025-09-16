@@ -2,43 +2,13 @@
 
 (a) `math_baseline.py`. I evaluated on GSM8k and MATH test set, using `r1_zero_reward_function`.
 
-* GSM8k:
-
-  * With `fast=True`: 
-
-    * format=1, answer=1, reward=1: 0
-
-    * format=1, answer=0, reward=0: 258
-
-    * format=0, answer=0, reward=0: 1061.
-
-  * With `fast=False`:
-
-    * format=1, answer=1, reward=1: 78
-
-    * format=1, answer=0, reward=0: 180
-
-    * format=0, answer=0, reward=0: 1061.
-
 * MATH:
 
-  * With `fast=True`: 
+  * format=1, answer=1, reward=1: 12
 
-    * format=1, answer=1, reward=1: 34
+  * format=1, answer=0, reward=0: 62
 
-    * format=1, answer=0, reward=0: 173
-
-    * format=0, answer=0, reward=0: 993.
-
-  * With `fast=False`:
-
-    * format=1, answer=1, reward=1: 63
-
-    * format=1, answer=0, reward=0: 144
-
-    * format=0, answer=0, reward=0: 993.
-
-`fast=True/False` has significant impact on GSM8k but less so on MATH. From this point on we will assume `fast=True`.
+  * format=0, answer=0, reward=0: 426.
 
 (b) Observed cases where the format reward is zero: 
 

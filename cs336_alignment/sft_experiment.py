@@ -1,10 +1,12 @@
 """
 uv run cs336_alignment/sft_experiment.py \
-    --batch-size 4 \
-    --unique-examples 16 \
+    --batch-size 8 \
+    --unique-examples 128 \
     --train-set ./data/math/train \
-    --gradient-accumulation-steps \
-    --lr 1e-4
+    --test-set ./data/math/test \
+    --gradient-accumulation-steps 4 \
+    --lr 1e-5 \
+    --checkpoint-dir ../checkpoints
 """
 
 from vllm import LLM, SamplingParams
@@ -27,13 +29,17 @@ from sft import (
     get_response_log_probs,
     sft_microbatch_train_step,
 )
-from math_baseline import evaluate_vllm
+from math_baseline import evaluate_vllm, fit_prompt
 from drgrpo_grader import r1_zero_reward_fn
 
 QWEN = "Qwen/Qwen2.5-Math-1.5B"
 SEED = 42
 torch.manual_seed(SEED)
 random.seed(SEED)
+
+R1_ZERO_PROMPT = """A conversation between User and Assistant. The User asks a question, and the Assistant solves it. The Assistant first thinks about the reasoning process in the mind and then provides the User with the answer. The reasoning process is enclosed within <think> </think> and answer is enclosed within <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think> <answer> answer here </answer>.
+User: {question}
+Assistant: <think>"""
 
 
 def cosine_lr_schedule_with_warmup(t, lr_max, lr_min, T_w, T_c):
@@ -142,6 +148,7 @@ def main():
     parser.add_argument("--gradient-accumulation-steps", type=int, required=True)
     parser.add_argument("--lr", type=float, required=True)
     parser.add_argument("--checkpoint-dir", type=str, required=True)
+    parser.add_argument("--init-eval", action="store_true")
     args = parser.parse_args()
 
     # wandb
@@ -191,6 +198,7 @@ def main():
     )  # pyright: ignore[reportAssignmentType]
     test_dataset = test_dataset.select_columns(["problem", "answer"])
     test_prompt_strs = [qa["problem"] for qa in test_dataset]
+    test_prompt_strs = [fit_prompt(R1_ZERO_PROMPT, q) for q in test_prompt_strs]
     test_ground_truth_strs = [qa["answer"] for qa in test_dataset]
     eval_sampling_params = SamplingParams(
         temperature=1.0,
@@ -206,6 +214,17 @@ def main():
     eval_model = None
     if torch.cuda.is_available():
         eval_model = init_vllm(QWEN, eval_device, SEED)
+
+        if args.init_eval:
+            eval_res = evaluate_vllm(
+                eval_model,
+                r1_zero_reward_fn,
+                test_prompt_strs,
+                test_ground_truth_strs,
+                eval_sampling_params,
+            )
+            eval_reward_stat = eval_res.reward_stat
+            print(eval_reward_stat)
 
     # sft loop
     num_steps = ceiling_dev(args.unique_examples, microbatch_size)
@@ -257,7 +276,7 @@ def main():
             lr_scheduler.step()
 
         # evaluate every few batches using vLLM
-        save_every_n_batches = 10
+        save_every_n_batches = 5
         if (step + 1) % (args.gradient_accumulation_steps * save_every_n_batches) == 0:
             print("Evaluation")
 
