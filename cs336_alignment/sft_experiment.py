@@ -1,11 +1,12 @@
 """
 uv run cs336_alignment/sft_experiment.py \
-    --batch-size 8 \
+    --batch-size 16 \
+    --microbatch-size 2 \
     --unique-examples 128 \
+    --epochs 10 \
     --train-set ./data/math/train \
     --test-set ./data/math/test \
-    --gradient-accumulation-steps 4 \
-    --lr 1e-5 \
+    --lr 1e-4 \
     --checkpoint-dir ../checkpoints
 """
 
@@ -155,21 +156,32 @@ def main():
     parser.add_argument("--unique-examples", type=int, required=True)
     parser.add_argument("--train-set", type=str, required=True)
     parser.add_argument("--test-set", type=str, required=True)
-    parser.add_argument("--gradient-accumulation-steps", type=int, required=True)
+    parser.add_argument("--microbatch-size", type=int, required=True)
     parser.add_argument("--epochs", type=int, required=True)
     parser.add_argument("--lr", type=float, required=True)
     parser.add_argument("--checkpoint-dir", type=str, required=True)
+    parser.add_argument("--eval-every-n-batches", type=int, default=10)
     parser.add_argument("--init-eval", action="store_true")
     args = parser.parse_args()
 
+    # Validate arguments
+    if args.batch_size % args.microbatch_size != 0:
+        raise ValueError(
+            f"batch_size ({args.batch_size}) must be divisible by microbatch_size ({args.microbatch_size})"
+        )
+
+    gradient_accumulation_steps = args.batch_size // args.microbatch_size
+    microbatch_size = args.microbatch_size
+
     # wandb
     run = wandb.init(
-        name=f"sft-{args.unique_examples}-ep{args.epochs}-lr{args.lr}",
+        name=f"sft-{args.unique_examples}-ep{args.epochs}-lr{args.lr}-bs{args.batch_size}",
         config={
             "unique_examples": args.unique_examples,
             "epochs": args.epochs,
             "lr": args.lr,
-            "gradient_accum_steps": args.gradient_accumulation_steps,
+            "gradient_accum_steps": gradient_accumulation_steps,
+            "microbatch_size": microbatch_size,
         },
     )
 
@@ -225,8 +237,9 @@ def main():
         include_stop_str_in_output=True,
     )
 
-    microbatch_size = max(args.batch_size // args.gradient_accumulation_steps, 1)
-    print(f"Microbatch size: {microbatch_size}")
+    print(
+        f"Microbatch size: {microbatch_size}, Gradient accumulation steps: {gradient_accumulation_steps}"
+    )
 
     eval_model = None
     if torch.cuda.is_available():
@@ -246,7 +259,9 @@ def main():
     # sft loop
     steps_per_epoch = ceiling_dev(args.unique_examples, microbatch_size)
     num_steps = steps_per_epoch * args.epochs
-    num_optimizer_steps = ceiling_dev(args.unique_examples, args.batch_size) * args.epochs
+    num_optimizer_steps = (
+        ceiling_dev(args.unique_examples, args.batch_size) * args.epochs
+    )
 
     opt = AdamW(model.parameters(), lr=args.lr)
 
@@ -270,8 +285,6 @@ def main():
             train_input_ids, train_labels, train_response_mask, index, train_device
         )
 
-        print(input_ids.shape, labels.shape, response_mask.shape)
-
         response_log_probs = get_response_log_probs(
             model,
             input_ids,
@@ -284,7 +297,7 @@ def main():
         loss, stat = sft_microbatch_train_step(
             policy_log_probs,
             response_mask,
-            gradient_accumulation_steps=args.gradient_accumulation_steps,
+            gradient_accumulation_steps=gradient_accumulation_steps,
             normalize_constant=1.0,
         )
 
@@ -292,17 +305,18 @@ def main():
 
         clip_grad_norm_(model.parameters(), max_norm=1.0)
 
-        if (step + 1) % args.gradient_accumulation_steps == 0:
+        if (step + 1) % gradient_accumulation_steps == 0:
             opt.step()
             opt.zero_grad()
             lr_scheduler.step()
 
         # evaluate every few batches using vLLM
-        save_every_n_batches = 5
-        if (step + 1) % (args.gradient_accumulation_steps * save_every_n_batches) == 0:
+        eval_every_n_steps = gradient_accumulation_steps * args.eval_every_n_batches
+        should_eval = ((step + 1) % eval_every_n_steps == 0) or (step + 1 == num_steps)
+        if should_eval:
             print("Evaluation")
 
-            # save model to path
+            # TODO: save best model to path
             # model.save_pretrained(args.checkpoint_dir)
             # tokenizer.save_pretrained(args.checkpoint_dir)
 
