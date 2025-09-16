@@ -156,6 +156,7 @@ def main():
     parser.add_argument("--train-set", type=str, required=True)
     parser.add_argument("--test-set", type=str, required=True)
     parser.add_argument("--gradient-accumulation-steps", type=int, required=True)
+    parser.add_argument("--epochs", type=int, required=True)
     parser.add_argument("--lr", type=float, required=True)
     parser.add_argument("--checkpoint-dir", type=str, required=True)
     parser.add_argument("--init-eval", action="store_true")
@@ -163,9 +164,10 @@ def main():
 
     # wandb
     run = wandb.init(
-        name=f"sft-{args.unique_examples}-lr{args.lr}",
+        name=f"sft-{args.unique_examples}-ep{args.epochs}-lr{args.lr}",
         config={
             "unique_examples": args.unique_examples,
+            "epochs": args.epochs,
             "lr": args.lr,
             "gradient_accum_steps": args.gradient_accumulation_steps,
         },
@@ -211,8 +213,9 @@ def main():
         args.test_set
     )  # pyright: ignore[reportAssignmentType]
     test_dataset = test_dataset.select_columns(["problem", "answer"])
-    test_prompt_strs = [qa["problem"] for qa in test_dataset]
-    test_prompt_strs = [fit_prompt(R1_ZERO_PROMPT, q) for q in test_prompt_strs]
+    test_prompt_strs = [
+        fit_prompt(R1_ZERO_PROMPT, qa["problem"]) for qa in test_dataset
+    ]
     test_ground_truth_strs = [qa["answer"] for qa in test_dataset]
     eval_sampling_params = SamplingParams(
         temperature=1.0,
@@ -241,8 +244,9 @@ def main():
             print(eval_reward_stat)
 
     # sft loop
-    num_steps = ceiling_dev(args.unique_examples, microbatch_size)
-    num_optimizer_steps = ceiling_dev(args.unique_examples, args.batch_size)
+    steps_per_epoch = ceiling_dev(args.unique_examples, microbatch_size)
+    num_steps = steps_per_epoch * args.epochs
+    num_optimizer_steps = ceiling_dev(args.unique_examples, args.batch_size) * args.epochs
 
     opt = AdamW(model.parameters(), lr=args.lr)
 
@@ -256,8 +260,12 @@ def main():
         print(f"Step {step}")
         wandb_data = {}
 
-        # random sampling
-        index = torch.randint(0, len(train_input_ids), (microbatch_size,))
+        # deterministic sequential sampling respecting unique_examples
+        max_examples = min(args.unique_examples, len(train_input_ids))
+        start_idx = (step * microbatch_size) % max_examples
+        indices = [(start_idx + i) % max_examples for i in range(microbatch_size)]
+
+        index = torch.tensor(indices)
         input_ids, labels, response_mask = sample(
             train_input_ids, train_labels, train_response_mask, index, train_device
         )
