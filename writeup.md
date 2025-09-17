@@ -70,3 +70,78 @@ How is cross-entropy loss related to negative log likelihood? Cross-entropy loss
 ## problem (sft_experiment)
 
 ![image-20250913143816985](https://raw.githubusercontent.com/yyin-dev/image_cloud/main/Picsee/image-20250913143816985_GQ5vNF.jpeg)
+
+### Prompting
+
+We are using r1-zero prompt: 
+
+```
+A conversation between User and Assistant. The User asks a question, and the Assistant solves it. The Assistant first thinks about the reasoning process in the mind and then provides the User with the answer. The reasoning process is enclosed within <think> </think> and answer is enclosed within <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think> <answer> answer here </answer>.
+User: {question}
+Assistant: <think>
+```
+
+The training data looks like:
+
+```
+{'problem': 'How many units long is a segment whose endpoints are $(-4,1)$ and $(1,13)$?', 
+ 'solution': 'We use the distance formula: $\\sqrt{(-4 - 1)^2 + (1 - 13)^2},$ which is $\\sqrt{25 + 144} = \\sqrt{169} = \\boxed{13}$.\n\n- OR -\n\nWe note that the points $(-4,1)$, $(1,13)$, and $(1,1)$ form a right triangle with legs of length 5 and 12. $(5,12,13)$ is a Pythagorean triple, so the hypotenuse has length $\\boxed{13}$.', 
+ 'answer': '13', 
+ 'subject': 'Algebra', 
+ 'level': 2, 
+ 'unique_id': 'test/algebra/1570.json', 
+ 'gold_solution_steps': ['We use the distance formula:', '$\\sqrt{(-4 - 1)^2 + (1 - 13)^2},$ which is $\\sqrt{25 + 144} = \\sqrt{169} = \\boxed{13}$.', '- OR - We note that the points $(-4,1)$, $(1,13)$,', 'and $(1,1)$ form a right triangle with legs of length 5 and 12. $(5,12,13)$ is a Pythagorean triple, so the hypotenuse has length $\\boxed{13}$.']
+}
+```
+
+Clearly, we should format the `problem` using the prompt template above. 
+
+```
+prompt = generate_prompt(R1_ZERO_PROMPT, data["problem"])
+label = data["solution"]
+```
+
+However, the model is not learning.. Why?
+
+If you examine the "solution" closely, you would see that it's not following the expected format in r1-zero prompt, thus the model is not learning to generate text in the right format. The grader script wouldn't even check answer correctness if the format is wrong, so the reward doesn't improve during training. 
+
+To fix this, 
+
+```
+prompt = generate_prompt(R1_ZERO_PROMPT, data["problem"])
+label = generate_label("{solution} </think> <answer> {answer} </answer>", data["solution"], data["answer"])
+```
+
+The model starts learning to generate text in the right format (and the reward improves) right away! A perfect demonstration that data is so critical for DL. 
+
+### Hyperparameter Search
+
+Hyperparameter search (batch size and learning rate). Search space: batch size in {8, 16, 32}, lr: {2e-4, 1e-4, 5e-5}. 
+
+<img src="https://raw.githubusercontent.com/yyin-dev/image_cloud/main/Picsee/image-20250917123218980_545isL.jpeg" alt="image-20250917123218980" style="zoom:50%;" />
+
+Batch size of 8, learning rate of 5e-5 works the best. 
+
+To evaluate the performance on different dataset sizes, I did two flavors of experiments:
+
+### Experiment 1: One epoch on different dataset sizes. 
+
+Total number of examples = unique examples.
+
+<img src="https://raw.githubusercontent.com/yyin-dev/image_cloud/main/Picsee/image-20250917124415879_bwqK0R.jpeg" alt="image-20250917124415879" style="zoom:50%;" />
+
+It's clearly that larger dataset doesn't necessarily improve validation accuracy. In fact, one epoch on 128 is enough to get 22% validation accuracy, which is the best. 
+
+### Experiment 2: The same total number of examples, different number of epochs. 
+
+Make the model see the same number of examples, varying number of unique examples. 
+
+<img src="https://raw.githubusercontent.com/yyin-dev/image_cloud/main/Picsee/image-20250917124808181_T4bG47.jpeg" alt="image-20250917124808181" style="zoom:50%;" />
+
+This is result from batch size of 16, learning rate of 1e-4, but I believe the qualitative result is transferrable. We SFT on 1024 examples, each with 128, 256, 512, and 1024 unique examples. 
+
+This clearly shows that it's better to run more epochs on a smaller dataset rather than fewer epoch on larger dataset.
+
+
+
+The MATH dataset we obatined is probably already filtered (see `filter_dataset.py`). Less than 1% of training dataset is bad so I don't think this will have a meaningful impact on the validation accuracy. The private dataset provided for the course is probably not pre-filtered so this filtering would likely produce meaningful improvements. 
