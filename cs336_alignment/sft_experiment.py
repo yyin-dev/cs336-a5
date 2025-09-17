@@ -31,7 +31,7 @@ from sft import (
     sft_microbatch_train_step,
 )
 from math_baseline import evaluate_vllm
-from drgrpo_grader import r1_zero_reward_fn
+from drgrpo_grader import r1_zero_reward_fn, extract_answer, grade
 
 QWEN = "Qwen/Qwen2.5-Math-1.5B"
 SEED = 42
@@ -161,6 +161,7 @@ def main():
     parser.add_argument("--lr", type=float, required=True)
     parser.add_argument("--checkpoint-dir", type=str, required=True)
     parser.add_argument("--eval-every-n-batches", type=int, default=10)
+    parser.add_argument("--filter-out-incorrect-training-data", action="store_true")
     parser.add_argument("--init-eval", action="store_true")
     args = parser.parse_args()
 
@@ -174,8 +175,12 @@ def main():
     microbatch_size = args.microbatch_size
 
     # wandb
+    name = f"sft-{args.unique_examples}-ep{args.epochs}-lr{args.lr}-bs{args.batch_size}"
+    if args.filter_out_incorrect_training_data:
+        name += "-filter"
+
     run = wandb.init(
-        name=f"sft-{args.unique_examples}-ep{args.epochs}-lr{args.lr}-bs{args.batch_size}",
+        name=name,
         config={
             "unique_examples": args.unique_examples,
             "epochs": args.epochs,
@@ -207,6 +212,18 @@ def main():
         args.train_set
     )  # pyright: ignore[reportAssignmentType]
     train_dataset = train_dataset.select_columns(["problem", "solution", "answer"])
+
+    # Filter out incorrect training data if requested
+    if args.filter_out_incorrect_training_data:
+        original_size = len(train_dataset)
+        train_dataset = train_dataset.filter(
+            lambda v: extract_answer(v["solution"]) is not None and grade(extract_answer(v["solution"]), v["answer"])
+        )
+        filtered_size = len(train_dataset)
+        print(
+            f"Filtered training data: {original_size} -> {filtered_size} examples ({filtered_size/original_size:.1%} retained)"
+        )
+
     train_prompt_strs = [
         fit_prompt(R1_ZERO_PROMPT, qa["problem"]) for qa in train_dataset
     ]
