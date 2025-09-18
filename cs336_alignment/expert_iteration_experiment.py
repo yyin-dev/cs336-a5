@@ -3,7 +3,7 @@ uv run cs336_alignment/expert_iteration_experiment.py \
   --expert-iteration-batch-size 512 \
   --rollout 5 \
   --batch-size 8 \
-  --micorbatch-size 2 \
+  --microbatch-size 2 \
   --train-set ./data/math/train \
   --test-set ./data/math/test \
   --epochs 2 \
