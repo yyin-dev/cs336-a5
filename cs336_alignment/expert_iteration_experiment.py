@@ -112,8 +112,14 @@ def sft(
         clip_grad_norm_(model.parameters(), max_norm=1.0)
 
         with torch.no_grad():
+            # The `loss` here is (loss from microbatch / batch size).
             losses.append(loss.item())
-            entropies.append(torch.sum(entropy).item())
+            # The `entropy` here is (total entropy from microbatch),
+            # (B, sequence_length).
+            # The response_mask is (B, sequence_length) too.
+
+            per_token_entropy = torch.mean(entropy[response_mask])
+            entropies.append(per_token_entropy.item())
 
         if (step + 1) % gradient_accumulation_steps == 0:
             opt.step()
