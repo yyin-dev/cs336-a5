@@ -146,3 +146,25 @@ def compute_policy_gradient_loss(
         return loss, metadata
 
     raise NotImplementedError
+
+
+def masked_mean(
+    tensor: torch.Tensor, mask: torch.Tensor, dim: int | None = None
+) -> torch.Tensor:
+    """Compute the mean of the tensor along a dimension,
+    considering only the elements with mask value 1.
+
+    Args:
+        tensor: the tensor to compute the mean of.
+        mask: same shape as tensor. We only take the mean over
+            the elements with mask value 1.
+        dim: int | None, the dimension to compute the mean along.
+            If None, sum over all non-masked elements and average
+            by their total count.
+
+    Returns:
+        shape matches tensor.mean(dim) semantics
+    """
+    sum = torch.sum(tensor * mask, dim=dim)
+    cnt = torch.sum(mask, dim=dim)
+    return sum / cnt
