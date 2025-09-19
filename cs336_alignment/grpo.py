@@ -71,3 +71,32 @@ def compute_naive_policy_gradient_loss(
     """
 
     return -raw_rewards_or_advantages * policy_log_probs
+
+
+def compute_grpo_clip_loss(
+    advantages: torch.Tensor,
+    policy_log_probs: torch.Tensor,
+    old_log_probs: torch.Tensor,
+    cliprange: float,
+) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    """
+    Args:
+        advantages: (batch_size, 1), per-example advantage
+        policy_log_probs: (batch_size, seq_len), per-token log probs from the policy being trained
+        old_log_probs: (batch_size, seq_len), per-token log probs from the old policy
+        cliprange
+
+    Returns:
+        loss: (batch_size, seq_len), per-token clipped loss
+        metadata: dict containing whatever you want to log. Suggestions:
+            - Whether each token was clipped or not
+    """
+    # Important: Compute weight based on RAW probabilities, instead of log probs!
+    weight = torch.exp(policy_log_probs - old_log_probs)
+
+    loss = -torch.min(
+        weight * advantages,
+        torch.clip(weight, 1 - cliprange, 1 + cliprange) * advantages,
+    )
+
+    return loss, {}
