@@ -233,11 +233,9 @@ def main():
     )
 
     # dataset
-    train_dataset: Dataset = load_from_disk(train_set)  # type: ignore
-    train_prompt_strs: list[str] = [
-        fit_r1_zero_question(v["problem"]) for v in train_dataset
-    ]
-    train_ground_truths: list[str] = [v["answer"] for v in train_dataset]
+    train_prompt_strs, train_ground_truths = load_math_train_using_r1_zero_prompt(
+        train_set, "ground_truth"
+    )
 
     test_prompt_strs, test_ground_truth_strs = load_math_test_using_r1_zero_prompt(
         test_set

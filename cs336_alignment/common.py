@@ -5,6 +5,7 @@ from unittest.mock import patch
 from datasets import Dataset, load_from_disk
 import torch
 import math
+from typing import Literal
 
 R1_ZERO_PROMPT = """A conversation between User and Assistant. The User asks a question, and the Assistant solves it. The Assistant first thinks about the reasoning process in the mind and then provides the User with the answer. The reasoning process is enclosed within <think> </think> and answer is enclosed within <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think> <answer> answer here </answer>.
 User: {question}
@@ -111,15 +112,22 @@ def load_policy_into_vllm_instance(policy: PreTrainedModel, llm: LLM):
     llm_model.load_weights(state_dict.items())
 
 
-def load_math_train_using_r1_zero_prompt(path: str):
+def load_math_train_using_r1_zero_prompt(
+    path: str, output_type: Literal["ground_truth", "reasoning_and_ground_truth"]
+):
     """
     Returns: (prompt strs, output strs) formated in R1-zero format
     """
     train_dataset: Dataset = load_from_disk(path)  # type: ignore
     prompt_strs = [fit_r1_zero_question(v["problem"]) for v in train_dataset]
-    output_strs = [
-        fit_r1_zero_output(v["solution"], v["answer"]) for v in train_dataset
-    ]
+    if output_type == "ground_truth":
+        output_strs = [v["answer"] for v in train_dataset]
+    elif output_type == "reasoning_and_ground_truth":
+        output_strs = [
+            fit_r1_zero_output(v["solution"], v["answer"]) for v in train_dataset
+        ]
+    else:
+        raise ValueError(f"Unexpected output_type: {output_type}")
 
     return prompt_strs, output_strs
 
