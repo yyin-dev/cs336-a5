@@ -168,3 +168,43 @@ def masked_mean(
     sum = torch.sum(tensor * mask, dim=dim)
     cnt = torch.sum(mask, dim=dim)
     return sum / cnt
+
+
+def grpo_microbatch_train_step(
+    policy_log_probs: torch.Tensor,
+    response_mask: torch.Tensor,
+    gradient_accumulation_steps: int,
+    loss_type: Literal["no_baseline", "reinforce_with_baseline", "grpo_clip"],
+    raw_rewards: torch.Tensor | None = None,
+    advantages: torch.Tensor | None = None,
+    old_log_probs: torch.Tensor | None = None,
+    cliprange: float | None = None,
+) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    """Compute the policy gradient loss and backprop its gradients for a microbatch.
+
+    Args:
+        policy_log_probs: shape (batch_size, sequence_length): the log-probs of the policy.
+        response_mask: shape (batch_size, sequence_length): the mask for the response.
+        gradient_accumulation_steps
+        loss_type
+        raw_rewards: Needed for loss_type="no_baseline". (batch_size, 1)
+        advantages:  Needed for loss_type in {"reinforce_with_baseline", "grpo_clip"}.
+          (batch_size, 1)
+        old_log_probs: Needed for loss_type="grpo_clip". (batch_size, seq_len)
+        cliprange: Needed for loss_type="grpo_clip".
+
+    Returns:
+        tuple[torch.Tensor, dict[str, torch.Tensor]]:
+            the policy gradient loss and its metadata.
+    """
+
+    # loss: (B, seq_len)
+    loss, medatadata = compute_policy_gradient_loss(
+        policy_log_probs, loss_type, raw_rewards, advantages, old_log_probs, cliprange
+    )
+
+    loss = masked_mean(loss, response_mask) / gradient_accumulation_steps
+
+    loss.backward()
+
+    return loss, medatadata
