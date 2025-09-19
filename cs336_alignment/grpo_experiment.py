@@ -1,4 +1,5 @@
 import torch
+import gc
 from torch.nn.utils import clip_grad_norm_
 from sft import get_response_log_probs, tokenize_prompt_and_output
 from grpo import grpo_microbatch_train_step, compute_group_normalized_rewards
@@ -13,6 +14,7 @@ from common import (
     sample,
     ceiling_dev,
 )
+from einops import rearrange
 from transformers.modeling_utils import PreTrainedModel
 from transformers.models.auto.modeling_auto import AutoModelForCausalLM
 from transformers.models.auto.tokenization_auto import AutoTokenizer
@@ -29,7 +31,7 @@ QWEN = "Qwen/Qwen2.5-Math-1.5B"
 SEED = 42
 torch.manual_seed(SEED)
 
-app = typer.Typer()
+app = typer.Typer(pretty_exceptions_enable=False)
 
 # Configure basic logging to console
 logging.basicConfig(
@@ -84,7 +86,7 @@ def main(
     assert torch.cuda.is_available()
 
     # wandb initialization
-    name = f"grpo-{loss_type}-rollout{rollout_batch_size}-grp{group_size}-lr{learning_rate}-epoch{epochs_per_rollout_batch}"
+    name = f"grpo-{loss_type.value}-rollout{rollout_batch_size}-grp{group_size}-lr{learning_rate}-epoch{epochs_per_rollout_batch}"
     wandb.init(
         project="grpo-experiment",
         name=name,
@@ -98,7 +100,7 @@ def main(
             "epochs_per_rollout_batch": epochs_per_rollout_batch,
             "train_batch_size": train_batch_size,
             "train_microbatch_size": train_microbatch_size,
-            "loss_type": str(loss_type),
+            "loss_type": loss_type.value,
             "use_std_normalization": use_std_normalization,
             "cliprange": cliprange,
         },
@@ -149,6 +151,9 @@ def main(
     N = len(train_prompt_strs)
     for grpo_step in range(n_grpo_steps):
         logging.info(f"GRPO step: {grpo_step}")
+        logging.info(
+            f"GPU memory allocated: {torch.cuda.memory_allocated(train_device) / 1024**3:.2f} GB"
+        )
 
         # rollout
         rollout_prompt_start_idx = (grpo_step * n_prompts_per_rollout_batch) % N
@@ -178,6 +183,8 @@ def main(
             advantage_eps,
             use_std_normalization,
         )
+        advantages = advantages.to(train_device)
+        raw_rewards = raw_rewards.to(train_device)
 
         train_tokenized = tokenize_prompt_and_output(
             repeated_prompts, rollout_responses, tokenizer
@@ -216,9 +223,14 @@ def main(
         num_optimizer_steps = (
             ceiling_dev(rollout_batch_size, train_batch_size) * epochs_per_rollout_batch
         )
-        warmup_steps = max(1, int(num_optimizer_steps * 0.05))
+        warmup_steps = min(
+            max(1, int(num_optimizer_steps * 0.05)), num_optimizer_steps - 1
+        )
         lr_scheduler = CosineWarmupScheduler(
             optimizer, warmup_steps, num_optimizer_steps, learning_rate, 1e-8
+        )
+        logging.info(
+            f"n_train_steps: {n_train_steps}, num_optimizer_step: {num_optimizer_steps}, warmup_steps: {warmup_steps}"
         )
 
         # collect metrics for logging
@@ -247,15 +259,19 @@ def main(
             policy_log_probs = policy_response["log_probs"]
             token_entropy = policy_response["token_entropy"]
 
+            microbatch_raw_rewards = rearrange(
+                raw_rewards[indices], "(b d) -> b d", d=1
+            )
+            microbatch_advantages = rearrange(advantages[indices], "(b d) -> b d", d=1)
             microbatch_old_log_probs = old_log_probs[indices]
             assert policy_log_probs.shape == microbatch_old_log_probs.shape
             loss, loss_metadata = grpo_microbatch_train_step(
                 policy_log_probs,
                 response_mask,
                 gradient_accumulation_steps,
-                str(loss_type),
-                raw_rewards,
-                advantages,
+                loss_type.value,
+                microbatch_raw_rewards,
+                microbatch_advantages,
                 microbatch_old_log_probs,
                 cliprange,
             )
@@ -272,7 +288,7 @@ def main(
                 step_entropies.append(per_token_entropy.item())
 
                 # clip fraction for off-policy
-                if str(loss_type) == "grpo_clip":
+                if loss_type.value == "grpo_clip":
                     weight = torch.exp(policy_log_probs - microbatch_old_log_probs)
                     clipped = (weight < (1 - cliprange)) | (weight > (1 + cliprange))
                     clip_fraction = torch.mean(clipped[response_mask].float())
@@ -285,34 +301,49 @@ def main(
                 lr_scheduler.step()
 
                 # calculate global step
-                optimizer_step = (train_step + 1) // gradient_accumulation_steps
-                num_optimizer_steps_per_grpo = (
+                num_optimizer_steps_per_grpo_step = (
                     n_train_steps // gradient_accumulation_steps
                 )
-                global_step = grpo_step * num_optimizer_steps_per_grpo + optimizer_step
+                global_step = (
+                    grpo_step * num_optimizer_steps_per_grpo_step
+                    + train_step // gradient_accumulation_steps
+                )
+
+                # calculate metrics
+                avg_loss = sum(step_losses) / len(step_losses) if step_losses else 0
+                avg_entropy = (
+                    sum(step_entropies) / len(step_entropies) if step_entropies else 0
+                )
+                avg_grad_norm = (
+                    sum(step_grad_norms) / len(step_grad_norms)
+                    if step_grad_norms
+                    else 0
+                )
+                avg_clip_fraction = (
+                    sum(step_clip_fractions) / len(step_clip_fractions)
+                    if step_clip_fractions
+                    else None
+                )
 
                 # log training metrics
                 wandb_data = {
                     "grpo_step": grpo_step,
                     "global_step": global_step,
-                    "loss": sum(step_losses) / len(step_losses) if step_losses else 0,
-                    "token_entropy": (
-                        sum(step_entropies) / len(step_entropies)
-                        if step_entropies
-                        else 0
-                    ),
-                    "grad_norm": (
-                        sum(step_grad_norms) / len(step_grad_norms)
-                        if step_grad_norms
-                        else 0
-                    ),
+                    "loss": avg_loss,
+                    "token_entropy": avg_entropy,
+                    "grad_norm": avg_grad_norm,
                     "train_reward_mean": reward_stat["mean"],
                 }
 
-                if step_clip_fractions:
-                    wandb_data["clip_fraction"] = sum(step_clip_fractions) / len(
-                        step_clip_fractions
-                    )
+                if avg_clip_fraction is not None:
+                    wandb_data["clip_fraction"] = avg_clip_fraction
+
+                # log
+                log_msg = f"GRPO Step {grpo_step}, Global Step {global_step}: loss={avg_loss:.4f}, entropy={avg_entropy:.4f}, grad_norm={avg_grad_norm:.4f}, train_reward={reward_stat['mean']:.4f}"
+                if avg_clip_fraction is not None:
+                    log_msg += f", clip_fraction={avg_clip_fraction:.4f}"
+
+                logging.info(log_msg)
 
                 # reset metrics
                 step_losses.clear()
@@ -321,7 +352,7 @@ def main(
                 step_clip_fractions.clear()
 
                 # evaluate every N steps
-                if optimizer_step % eval_every_n_steps == 0:
+                if (global_step + 1) % eval_every_n_steps == 0:
                     load_policy_into_vllm_instance(model, eval_model)
 
                     eval_res = evaluate_vllm(
@@ -333,10 +364,22 @@ def main(
                     )
                     reward_stat = eval_res.reward_stat
                     wandb_data["eval_reward_mean"] = reward_stat["final"]["mean"]
-                    print(f"{reward_stat}")
+
+                    # log evaluation results
+                    logging.info(
+                        f"Evaluation at step {global_step}: final_reward={reward_stat['final']['mean']:.4f}, format_reward={reward_stat['format']['mean']:.4f}, answer_reward={reward_stat['answer']['mean']:.4f}"
+                    )
 
                 wandb.log(wandb_data)
 
+        # Cleanup at end of GRPO step
+        del old_log_probs, train_tokenized, advantages, raw_rewards
+        gc.collect()
+        torch.cuda.empty_cache()
+        logging.info(
+            f"After cleanup - GPU memory allocated: {torch.cuda.memory_allocated(train_device) / 1024**3:.2f} GB"
+        )
+
 
 if __name__ == "__main__":
-    typer.run(main)
+    app()
