@@ -11,7 +11,7 @@ def compute_group_normalized_rewards(
     group_size: int,
     advantage_eps: float,
     normalize_by_std: bool,
-):
+) -> tuple[torch.Tensor, torch.Tensor, dict[str, float]]:
     """
     Args:
         reward_fn: scores rollout against ground truth. The dict should contain
@@ -55,3 +55,19 @@ def compute_group_normalized_rewards(
     reward_mean = torch.mean(raw_rewards).item()
 
     return advantages, raw_rewards, {"mean": reward_mean}
+
+
+def compute_naive_policy_gradient_loss(
+    raw_rewards_or_advantages: torch.Tensor, policy_log_probs: torch.Tensor
+) -> torch.Tensor:
+    """
+    Args:
+        raw_rewards_or_advantages: (batch_size, 1)
+        policy_log_probs: (batch_size, sequence_length)
+
+    Returns:
+        Shape (batch_size, sequence_length). Per-token policy-gradient loss (to
+        be aggregated across the batch and sequence dimension in the training loop).
+    """
+
+    return -raw_rewards_or_advantages * policy_log_probs
