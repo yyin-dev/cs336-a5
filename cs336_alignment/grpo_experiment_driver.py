@@ -40,25 +40,47 @@ class GRPOExperimentConfig:
     def to_command_args(self) -> List[str]:
         """Convert config to command line arguments."""
         return [
-            "--train-dataset", self.train_dataset,
-            "--test-dataset", self.test_dataset,
-            "--n-grpo-steps", str(self.n_grpo_steps),
-            "--learning-rate", str(self.learning_rate),
-            "--advantage-eps", str(self.advantage_eps),
-            "--rollout-batch-size", str(self.rollout_batch_size),
-            "--group-size", str(self.group_size),
-            "--sampling-temperature", str(self.sampling_temperature),
-            "--sampling-min-tokens", str(self.sampling_min_tokens),
-            "--sampling-max-tokens", str(self.sampling_max_tokens),
-            "--epochs-per-rollout-batch", str(self.epochs_per_rollout_batch),
-            "--train-batch-size", str(self.train_batch_size),
-            "--train-microbatch-size", str(self.train_microbatch_size),
-            "--gradient-accumulation-steps", str(self.gradient_accumulation_steps),
-            "--gpu-memory-utilization", str(self.gpu_memory_utilization),
-            "--loss-type", self.loss_type,
-            "--use-std-normalization" if self.use_std_normalization else "--no-use-std-normalization",
-            "--cliprange", str(self.cliprange),
-            "--eval-every-n-steps", str(self.eval_every_n_steps),
+            "--train-dataset",
+            self.train_dataset,
+            "--test-dataset",
+            self.test_dataset,
+            "--n-grpo-steps",
+            str(self.n_grpo_steps),
+            "--learning-rate",
+            str(self.learning_rate),
+            "--advantage-eps",
+            str(self.advantage_eps),
+            "--rollout-batch-size",
+            str(self.rollout_batch_size),
+            "--group-size",
+            str(self.group_size),
+            "--sampling-temperature",
+            str(self.sampling_temperature),
+            "--sampling-min-tokens",
+            str(self.sampling_min_tokens),
+            "--sampling-max-tokens",
+            str(self.sampling_max_tokens),
+            "--epochs-per-rollout-batch",
+            str(self.epochs_per_rollout_batch),
+            "--train-batch-size",
+            str(self.train_batch_size),
+            "--train-microbatch-size",
+            str(self.train_microbatch_size),
+            "--gradient-accumulation-steps",
+            str(self.gradient_accumulation_steps),
+            "--gpu-memory-utilization",
+            str(self.gpu_memory_utilization),
+            "--loss-type",
+            self.loss_type,
+            (
+                "--use-std-normalization"
+                if self.use_std_normalization
+                else "--no-use-std-normalization"
+            ),
+            "--cliprange",
+            str(self.cliprange),
+            "--eval-every-n-steps",
+            str(self.eval_every_n_steps),
         ]
 
     def description(self) -> str:
@@ -68,54 +90,21 @@ class GRPOExperimentConfig:
 
 # Define parameter combinations to test
 EXPERIMENT_CONFIGS = [
-    # On-policy REINFORCE with baseline experiments
+    # Learning rate sweep
     GRPOExperimentConfig(
-        rollout_batch_size=256,
-        group_size=8,
-        learning_rate=1e-5,
-        epochs_per_rollout_batch=1,
-        loss_type="reinforce_with_baseline",
+        learning_rate=1e-6,
     ),
     GRPOExperimentConfig(
-        rollout_batch_size=256,
-        group_size=16,
-        learning_rate=1e-5,
-        epochs_per_rollout_batch=1,
-        loss_type="reinforce_with_baseline",
+        learning_rate=3e-6,
     ),
-
-    # Off-policy GRPO-Clip experiments
+    # GRPOExperimentConfig(
+    #     learning_rate=1e-5,
+    # ),
     GRPOExperimentConfig(
-        rollout_batch_size=256,
-        group_size=8,
-        learning_rate=1e-5,
-        epochs_per_rollout_batch=3,
-        loss_type="grpo_clip",
-        cliprange=0.2,
+        learning_rate=3e-5,
     ),
     GRPOExperimentConfig(
-        rollout_batch_size=256,
-        group_size=16,
-        learning_rate=1e-5,
-        epochs_per_rollout_batch=3,
-        loss_type="grpo_clip",
-        cliprange=0.2,
-    ),
-
-    # Learning rate ablations
-    GRPOExperimentConfig(
-        rollout_batch_size=256,
-        group_size=8,
-        learning_rate=5e-6,
-        epochs_per_rollout_batch=1,
-        loss_type="reinforce_with_baseline",
-    ),
-    GRPOExperimentConfig(
-        rollout_batch_size=256,
-        group_size=8,
-        learning_rate=2e-5,
-        epochs_per_rollout_batch=1,
-        loss_type="reinforce_with_baseline",
+        learning_rate=1e-4,
     ),
 ]
 
@@ -178,7 +167,9 @@ def main():
     if failed_experiments:
         print(f"\nFailed experiments:")
         for exp_num, config, returncode in failed_experiments:
-            print(f"  Experiment {exp_num}: {config.description()} (exit code: {returncode})")
+            print(
+                f"  Experiment {exp_num}: {config.description()} (exit code: {returncode})"
+            )
         sys.exit(1)
     else:
         print(f"All experiments completed successfully!")
