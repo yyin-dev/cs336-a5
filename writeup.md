@@ -200,7 +200,14 @@ Observations on other metrics:
 
 ## Problem (grpo_baselines)
 
-TODO
+![image-20250921105411670](https://raw.githubusercontent.com/yyin-dev/image_cloud/main/Picsee/image-20250921105411670_S3N2xf.jpeg)
+
+The eval_reward_mean curve clearly shows that baseline significantly helped with training. 
+
+Observations on other metrics:
+
+* The per-token entropy doesn't show the downwards trend, which exists when using baseline.
+* The gradient norm spike wasn't observed either. 
 
 ## Problem (think_about_length_normalization)
 
