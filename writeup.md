@@ -185,3 +185,36 @@ With vanilla SFT, the best validation accuracy is 33% with: unique_examples=128,
 
 With expert iteration, the best accuracy is 36% with: 512 ei_batch_size, G=4, epochs=8, batch size=8, lr=5e-5.
 
+## Problem (grpo_learning_rate)
+
+![image-20250921103824310](https://raw.githubusercontent.com/yyin-dev/image_cloud/main/Picsee/image-20250921103824310_BidF5C.jpeg)
+
+The best learning rate is 3e-5, while 1e-4 is too large and diverges and 1e-6 is too small to do meaningful learning. 
+
+Observations on other metrics: 
+
+* The train reward is much more noisy than valiation reward. 
+
+* The per-token entropy shows a slowly decreasing trend, meaning the model is becoming less confident. 
+* For good learning rates (i.e. 1e-5 and 3e-5), the gradient norm almost 5x around Step 11. It's unclear what happened there?
+
+## Problem (grpo_baselines)
+
+TODO
+
+## Problem (think_about_length_normalization)
+
+Assumes that the constant normalizer in `masked_normalize` is `max_gen_len`, `masked_mean` is less influenced by sequence length than `masked_normalize`. In `masked_normalize`, the loss (and thus gradients) for a sequence is basically scaled down by `seq_len / max_seq_len`. 
+
+Arguments for `masked_mean`:
+
+* When two sequences have the same advantage, the model updates more for the longer sequence, which feels wrong?
+
+Arguments for `masked_normalize`:
+
+* Maybe harder problems require more thinking and thus longer sequences, while eaiser problems require less thinking and thus shorter sequences, so it's right to optimize more for harder problems? 
+
+## Problem  (grpo_length_normalization)
+
+
+
