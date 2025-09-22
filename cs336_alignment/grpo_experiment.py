@@ -26,6 +26,7 @@ from vllm import LLM, SamplingParams
 import logging
 import wandb
 from drgrpo_grader import r1_zero_reward_fn
+from dataclasses import dataclass, field
 
 QWEN = "Qwen/Qwen2.5-Math-1.5B"
 SEED = 42
@@ -43,6 +44,50 @@ class LossType(str, enum.Enum):
     NO_BASELINE = "no_baseline"
     REINFORCE_WITH_BASELINE = "reinforce_with_baseline"
     GRPO_CLIP = "grpo_clip"
+
+
+@dataclass
+class GrpoStepMetrics:
+    step_losses: list = field(default_factory=list)
+    step_entropies: list = field(default_factory=list)
+    step_grad_norms: list = field(default_factory=list)
+    step_clip_fractions: list = field(default_factory=list)
+
+    def update_train_step(
+        self,
+        loss: torch.Tensor,
+        per_token_entropy: torch.Tensor,
+        grad_norm: torch.Tensor,
+        clip_fraction: torch.Tensor | None = None,
+    ):
+        with torch.no_grad():
+            self.step_losses.append(loss.item())
+            self.step_entropies.append(per_token_entropy.item())
+            self.step_grad_norms.append(grad_norm.item())
+            if clip_fraction is not None:
+                self.step_clip_fractions.append(clip_fraction.item())
+
+    def after_optimizer_step(self):
+        avg_loss = (
+            sum(self.step_losses) / len(self.step_losses) if self.step_losses else 0
+        )
+        avg_entropy = (
+            sum(self.step_entropies) / len(self.step_entropies)
+            if self.step_entropies
+            else 0
+        )
+        avg_grad_norm = (
+            sum(self.step_grad_norms) / len(self.step_grad_norms)
+            if self.step_grad_norms
+            else 0
+        )
+        avg_clip_fraction = (
+            sum(self.step_clip_fractions) / len(self.step_clip_fractions)
+            if self.step_clip_fractions
+            else None
+        )
+
+        return avg_loss, avg_entropy, avg_grad_norm, avg_clip_fraction
 
 
 @app.command()
@@ -234,10 +279,7 @@ def main(
         )
 
         # collect metrics for logging
-        step_losses = []
-        step_entropies = []
-        step_grad_norms = []
-        step_clip_fractions = []
+        grpo_step_metrics = GrpoStepMetrics()
 
         for train_step in range(n_train_steps):
             start_idx = (train_step * train_microbatch_size) % rollout_batch_size
@@ -276,23 +318,18 @@ def main(
                 cliprange,
             )
 
+            per_token_entropy = torch.mean(token_entropy[response_mask])
             grad_norm = clip_grad_norm_(model.parameters(), max_norm=1.0)
-            step_grad_norms.append(grad_norm.item())
+            clip_fraction = None
+            # clip fraction for off-policy
+            if loss_type.value == "grpo_clip":
+                weight = torch.exp(policy_log_probs - microbatch_old_log_probs)
+                clipped = (weight < (1 - cliprange)) | (weight > (1 + cliprange))
+                clip_fraction = torch.mean(clipped[response_mask].float())
 
-            # collect metrics
-            with torch.no_grad():
-                step_losses.append(loss.item())
-
-                # token entropy (mean over response tokens only)
-                per_token_entropy = torch.mean(token_entropy[response_mask])
-                step_entropies.append(per_token_entropy.item())
-
-                # clip fraction for off-policy
-                if loss_type.value == "grpo_clip":
-                    weight = torch.exp(policy_log_probs - microbatch_old_log_probs)
-                    clipped = (weight < (1 - cliprange)) | (weight > (1 + cliprange))
-                    clip_fraction = torch.mean(clipped[response_mask].float())
-                    step_clip_fractions.append(clip_fraction.item())
+            grpo_step_metrics.update_train_step(
+                loss, per_token_entropy, grad_norm, clip_fraction
+            )
 
             # finished a batch
             if (train_step + 1) % gradient_accumulation_steps == 0:
@@ -309,23 +346,10 @@ def main(
                     + train_step // gradient_accumulation_steps
                 )
 
-                # calculate metrics
-                avg_loss = sum(step_losses) / len(step_losses) if step_losses else 0
-                avg_entropy = (
-                    sum(step_entropies) / len(step_entropies) if step_entropies else 0
-                )
-                avg_grad_norm = (
-                    sum(step_grad_norms) / len(step_grad_norms)
-                    if step_grad_norms
-                    else 0
-                )
-                avg_clip_fraction = (
-                    sum(step_clip_fractions) / len(step_clip_fractions)
-                    if step_clip_fractions
-                    else None
-                )
-
                 # log training metrics
+                (avg_loss, avg_entropy, avg_grad_norm, avg_clip_fraction) = (
+                    grpo_step_metrics.after_optimizer_step()
+                )
                 wandb_data = {
                     "grpo_step": grpo_step,
                     "global_step": global_step,
@@ -344,12 +368,6 @@ def main(
                     log_msg += f", clip_fraction={avg_clip_fraction:.4f}"
 
                 logging.info(log_msg)
-
-                # reset metrics
-                step_losses.clear()
-                step_entropies.clear()
-                step_grad_norms.clear()
-                step_clip_fractions.clear()
 
                 # evaluate every N steps
                 if (global_step + 1) % eval_every_n_steps == 0:
@@ -373,6 +391,9 @@ def main(
                 wandb.log(wandb_data)
 
         # Cleanup at end of GRPO step
+        # Without this explicit deletion, the GPU memory increases after each
+        # GRPO step and causes OOM eventually. It's not 100% clear to me why GC
+        # failed to work here...
         del old_log_probs, train_tokenized, advantages, raw_rewards
         gc.collect()
         torch.cuda.empty_cache()
