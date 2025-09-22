@@ -132,7 +132,7 @@ def main(
     assert torch.cuda.is_available()
 
     # wandb initialization
-    name = f"grpo-{loss_type.value}-rollout{rollout_batch_size}-grp{group_size}-lr{learning_rate}-epoch{epochs_per_rollout_batch}"
+    name = f"grpo-{loss_type.value}-rollout{rollout_batch_size}-grp{group_size}-lr{learning_rate}-epoch{epochs_per_rollout_batch}-train_bs{train_batch_size}"
     if length_normalization:
         name += "-lengthnorm"
     wandb.init(
