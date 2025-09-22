@@ -111,6 +111,7 @@ def main(
     use_std_normalization: bool = True,
     cliprange: float = 0.2,
     eval_every_n_steps: int = 5,
+    length_normalization: bool = False,
 ):
     assert train_batch_size == rollout_batch_size, "on-policy"
 
@@ -132,6 +133,8 @@ def main(
 
     # wandb initialization
     name = f"grpo-{loss_type.value}-rollout{rollout_batch_size}-grp{group_size}-lr{learning_rate}-epoch{epochs_per_rollout_batch}"
+    if length_normalization:
+        name += "-lengthnorm"
     wandb.init(
         project="grpo-experiment",
         name=name,
@@ -148,6 +151,7 @@ def main(
             "loss_type": loss_type.value,
             "use_std_normalization": use_std_normalization,
             "cliprange": cliprange,
+            "length_normalization": length_normalization,
         },
     )
 
@@ -316,6 +320,7 @@ def main(
                 microbatch_advantages,
                 microbatch_old_log_probs,
                 cliprange,
+                length_normalization,
             )
 
             per_token_entropy = torch.mean(token_entropy[response_mask])

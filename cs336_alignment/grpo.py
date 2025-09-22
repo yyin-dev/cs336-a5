@@ -1,6 +1,7 @@
 import torch
 from typing import Callable, Literal
 from einops import rearrange
+from sft import masked_normalize
 
 
 def compute_group_normalized_rewards(
@@ -178,6 +179,7 @@ def grpo_microbatch_train_step(
     advantages: torch.Tensor | None = None,
     old_log_probs: torch.Tensor | None = None,
     cliprange: float | None = None,
+    length_normalization: bool = False,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     """Compute the policy gradient loss and backprop its gradients for a microbatch.
 
@@ -202,7 +204,11 @@ def grpo_microbatch_train_step(
         policy_log_probs, loss_type, raw_rewards, advantages, old_log_probs, cliprange
     )
 
-    loss = masked_mean(loss, response_mask) / gradient_accumulation_steps
+    if length_normalization:
+        max_length = response_mask.shape[1]
+        loss = masked_normalize(loss, response_mask, normalize_constant=max_length)
+    else:
+        loss = masked_mean(loss, response_mask) / gradient_accumulation_steps
 
     loss.backward()
 
