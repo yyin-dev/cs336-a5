@@ -102,8 +102,8 @@ def main(
     sampling_temperature: float = 1.0,
     sampling_min_tokens: int = 4,  # disallow empty string responses
     sampling_max_tokens: int = 1024,
-    epochs_per_rollout_batch: int = 1,  # on-policy
-    train_batch_size: int = 256,  # on-policy
+    epochs_per_rollout_batch: int = 1,  # defaults to 1, i.e. on-policy
+    train_batch_size: int = 256,  # defaults to the same as rollout_batch_size, i.e. on-policy
     train_microbatch_size: int = 2,
     gradient_accumulation_steps: int = 128,
     gpu_memory_utilization: float = 0.85,
@@ -113,7 +113,7 @@ def main(
     eval_every_n_steps: int = 5,
     length_normalization: bool = False,
 ):
-    assert train_batch_size == rollout_batch_size, "on-policy"
+    assert rollout_batch_size * epochs_per_rollout_batch % train_batch_size == 0
 
     assert (
         train_batch_size % train_microbatch_size == 0
@@ -240,8 +240,9 @@ def main(
         )
 
         # compute old_log_probs and reuse for each epoch
-        old_log_probs = []
-        with torch.no_grad():
+        with torch.inference_mode():
+            old_log_probs = []
+
             for i in range(ceiling_dev(rollout_batch_size, train_microbatch_size)):
                 start = i * train_microbatch_size
                 end = min(start + train_microbatch_size, rollout_batch_size)
@@ -258,7 +259,8 @@ def main(
                         model, input_ids, labels, return_token_entropy=False
                     )["log_probs"]
                 )
-        old_log_probs = torch.cat(old_log_probs, dim=0)
+
+            old_log_probs = torch.cat(old_log_probs, dim=0)
 
         optimizer = torch.optim.AdamW(
             model.parameters(),
@@ -268,10 +270,14 @@ def main(
         )
 
         # train steps
-        n_train_steps = gradient_accumulation_steps * epochs_per_rollout_batch
-        num_optimizer_steps = (
-            ceiling_dev(rollout_batch_size, train_batch_size) * epochs_per_rollout_batch
+        # We will take [epochs_per_rollout_batch] over [rollout_batch_size].
+        n_train_steps = (
+            rollout_batch_size * epochs_per_rollout_batch // train_microbatch_size
         )
+        num_optimizer_steps = (
+            rollout_batch_size * epochs_per_rollout_batch // train_batch_size
+        )
+
         warmup_steps = min(
             max(1, int(num_optimizer_steps * 0.05)), num_optimizer_steps - 1
         )
