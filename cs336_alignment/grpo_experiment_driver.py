@@ -24,6 +24,7 @@ class GRPOExperimentConfig:
     train_microbatch_size: int = 2
     loss_type: str = "reinforce_with_baseline"
     use_std_normalization: bool = True
+    length_normalization: bool = False
     cliprange: float = 0.2
     eval_every_n_steps: int = 5
 
@@ -77,6 +78,11 @@ class GRPOExperimentConfig:
                 if self.use_std_normalization
                 else "--no-use-std-normalization"
             ),
+            (
+                "--length-normalization"
+                if self.length_normalization
+                else "--no-length-normalization"
+            ),
             "--cliprange",
             str(self.cliprange),
             "--eval-every-n-steps",
@@ -88,23 +94,21 @@ class GRPOExperimentConfig:
         return f"{self.loss_type}_rollout{self.rollout_batch_size}_grp{self.group_size}_lr{self.learning_rate}_ep{self.epochs_per_rollout_batch}"
 
 
+learning_rates = [1e-6, 3e-6, 1e-5, 3e-5, 1e-4]
+learning_rate_sweep = [GRPOExperimentConfig(learning_rate=lr) for lr in learning_rates]
+
+
 # Define parameter combinations to test
 EXPERIMENT_CONFIGS = [
-    # Learning rate sweep
-    GRPOExperimentConfig(
-        learning_rate=1e-6,
-    ),
-    GRPOExperimentConfig(
-        learning_rate=3e-6,
-    ),
-    # GRPOExperimentConfig(
-    #     learning_rate=1e-5,
-    # ),
+    # masked_normalize
     GRPOExperimentConfig(
         learning_rate=3e-5,
+        length_normalization=True,
     ),
+    # std normalization
     GRPOExperimentConfig(
-        learning_rate=1e-4,
+        learning_rate=3e-5,
+        use_std_normalization=False,
     ),
 ]
 
