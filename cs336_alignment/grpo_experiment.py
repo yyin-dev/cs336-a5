@@ -25,12 +25,16 @@ import enum
 from vllm import LLM, SamplingParams
 import logging
 import wandb
+import random
+import numpy as np
 from drgrpo_grader import r1_zero_reward_fn
 from dataclasses import dataclass, field
 
 QWEN = "Qwen/Qwen2.5-Math-1.5B"
 SEED = 42
 torch.manual_seed(SEED)
+random.seed(SEED)
+np.random.seed(SEED)
 
 app = typer.Typer(pretty_exceptions_enable=False)
 
