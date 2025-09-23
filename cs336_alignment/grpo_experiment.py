@@ -198,6 +198,28 @@ def main(
     )
 
     N = len(train_prompt_strs)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=learning_rate,
+        weight_decay=0.0,
+        betas=(0.9, 0.95),
+    )
+    total_optimizer_steps = (
+        rollout_batch_size * epochs_per_rollout_batch * n_grpo_steps // train_batch_size
+    )
+    warmup_steps = total_optimizer_steps // 20
+    lr_scheduler = CosineWarmupScheduler(
+        optimizer,
+        total_optimizer_steps // 20,
+        total_optimizer_steps,
+        learning_rate,
+        1e-8,
+    )
+    logging.info(
+        f"total optimizer steps: {total_optimizer_steps}, warmup_steps: {warmup_steps}"
+    )
+
+    # Outer loop
     for grpo_step in range(n_grpo_steps):
         logging.info(f"GRPO step: {grpo_step}")
         logging.info(
@@ -262,35 +284,16 @@ def main(
 
             old_log_probs = torch.cat(old_log_probs, dim=0)
 
-        optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=learning_rate,
-            weight_decay=0.0,
-            betas=(0.9, 0.95),
-        )
-
         # train steps
         # We will take [epochs_per_rollout_batch] over [rollout_batch_size].
         n_train_steps = (
             rollout_batch_size * epochs_per_rollout_batch // train_microbatch_size
         )
-        num_optimizer_steps = (
-            rollout_batch_size * epochs_per_rollout_batch // train_batch_size
-        )
-
-        warmup_steps = min(
-            max(1, int(num_optimizer_steps * 0.05)), num_optimizer_steps - 1
-        )
-        lr_scheduler = CosineWarmupScheduler(
-            optimizer, warmup_steps, num_optimizer_steps, learning_rate, 1e-8
-        )
-        logging.info(
-            f"n_train_steps: {n_train_steps}, num_optimizer_step: {num_optimizer_steps}, warmup_steps: {warmup_steps}"
-        )
 
         # collect metrics for logging
         grpo_step_metrics = GrpoStepMetrics()
 
+        # Inner loop
         for train_step in range(n_train_steps):
             start_idx = (train_step * train_microbatch_size) % rollout_batch_size
             indices = [
@@ -367,6 +370,7 @@ def main(
                     "loss": avg_loss,
                     "token_entropy": avg_entropy,
                     "grad_norm": avg_grad_norm,
+                    "lr": lr_scheduler.get_last_lr()[0],
                     "train_reward_mean": reward_stat["mean"],
                 }
 
