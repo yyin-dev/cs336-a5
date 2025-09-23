@@ -195,7 +195,7 @@ Observations on other metrics:
 
 * The train reward is much more noisy than valiation reward. 
 
-* The per-token entropy shows a slowly decreasing trend, meaning the model is becoming less confident. 
+* The per-token entropy shows a slowly decreasing trend, meaning the model is becoming more confident. 
 * For good learning rates (i.e. 1e-5 and 3e-5), the gradient norm almost 5x around Step 11. It's unclear what happened there?
 
 ## Problem (grpo_baselines)
@@ -223,5 +223,62 @@ Arguments for `masked_normalize`:
 
 ## Problem  (grpo_length_normalization)
 
+![image-20250922203724715](https://raw.githubusercontent.com/yyin-dev/image_cloud/main/Picsee/image-20250922203724715_gCTfeU.jpeg)
 
+`Masked_mean` works much better than `masked_normalize`. The loss and gradient norm have smaller scale with `masked_mean`, which is probably better for learning (?).
 
+## problem (grpo_group_standard_normalization)
+
+![image-20250923001241748](https://raw.githubusercontent.com/yyin-dev/image_cloud/main/Picsee/image-20250923001241748_rtUPCx.jpeg)
+
+TODO: Fix learning rate scheduling across training steps
+
+TODO: use `torch.compile` to improve performance.
+
+## Note: inconsistent/non-deterministic runs
+
+The two runs are run with the same hyperparameters on different git revisions, but with very different results. 
+
+https://wandb.ai/yueyin-dev-weights-biases/grpo-experiment/runs/5kt9uk4x/overview
+
+https://wandb.ai/yueyin-dev-weights-biases/grpo-experiment/runs/pfmmqzua/overview
+
+The later run (yellow) performs much better than an earlier run (blue). However, the git commits in between look benign and shouldn't introduce meaningful changes to the training process. 
+
+![image-20250923111122948](https://raw.githubusercontent.com/yyin-dev/image_cloud/main/Picsee/image-20250923111122948_cPOcqi.jpeg)
+
+I used `git bisect` to try to find the commit that caused the change:
+
+* https://wandb.ai/yueyin-dev-weights-biases/grpo-experiment/runs/x05uwr4l/overview
+* https://wandb.ai/yueyin-dev-weights-biases/grpo-experiment/runs/1032umce/overview
+
+![image-20250923111403635](https://raw.githubusercontent.com/yyin-dev/image_cloud/main/Picsee/image-20250923111403635_HW3u0n.jpeg)
+
+The two bisect runs all look closer to the later (yellow) run, which points me to the commit that's just a documentation change... Here are the commands I ran
+
+```
+$ git bisect start
+$ git bisect bad 60323cccef6065988258d8326c34cc3aa0035ba5
+$ git bisect good cb29ee762557d7d4618108376632d4639c8a7777
+Bisecting: 3 revisions left to test after this (roughly 2 steps)
+[baa4edb4fb68a7b727c2dee04a10d5d3d5a739b7] Refactor metrics logging
+
+$ git bisect bad
+Bisecting: 0 revisions left to test after this (roughly 1 step)
+[576f24c1310689f1db5623a6cc3763e5d4c6e3e3] On-policy loss type comparison
+
+$ git bisect bad
+Bisecting: 0 revisions left to test after this (roughly 0 steps)
+[3f86b34ed08c7cff0e28dd2a6ddc455aa74ee9d2] LR tuning writeup
+```
+
+I discussed this with Claude and did some investigation. We considered the following reasons:
+
+* I didn't set `seed` in the `SamplingParams` for evaluation, so that's why we observed different in evaluation reward. However, this doesn't explain the training difference - in out GRPO setup, evaluation doesn't affect training at all.
+* There are some vLLM non-determinism even though I'm using `seed` in rollout `SamplingParams`, which caused rollouts to be non-deterministic. We printed out sampled rollout at the first step and it looks the same across runs. However, this doesn't guarantee that vLLM is deterministic when `seed` is set. 
+  * vLLM non-determinism even with a single GPU and static dataset
+    * Parallel GPU operations: GPU is massively parallel and floating-point math is not associative, meaing `(a+b)+c` is not always equal to `a + (b+c)` due to floating point imprecision. 
+    * Compounding erros: due to the autoregressive nature of LLM inference, small difference can compound. 
+    * Even with static dataset, vLLM's core optimization is dynamic batching which is not deterministic. 
+    * To maximize determinism, need to set a bunch of other environment variables and flags like `torch.use_deterministic_algorithms(True)`, run with `temperature=0` and `top_p=1.0`, etc. 
+* It's possible that the first run (in blue) was an outlier, and later runs are reasonably consistent...

@@ -1,5 +1,7 @@
 import torch
 import gc
+import random
+import numpy as np
 from torch.nn.utils import clip_grad_norm_
 from sft import get_response_log_probs, tokenize_prompt_and_output
 from grpo import grpo_microbatch_train_step, compute_group_normalized_rewards
@@ -25,16 +27,14 @@ import enum
 from vllm import LLM, SamplingParams
 import logging
 import wandb
-import random
-import numpy as np
 from drgrpo_grader import r1_zero_reward_fn
 from dataclasses import dataclass, field
 
 QWEN = "Qwen/Qwen2.5-Math-1.5B"
 SEED = 42
-torch.manual_seed(SEED)
 random.seed(SEED)
 np.random.seed(SEED)
+torch.manual_seed(SEED)
 
 app = typer.Typer(pretty_exceptions_enable=False)
 
@@ -199,6 +199,7 @@ def main(
         max_tokens=1024,
         stop="</answer>",
         include_stop_str_in_output=True,
+        seed=SEED,
     )
 
     N = len(train_prompt_strs)
@@ -382,7 +383,7 @@ def main(
                     wandb_data["clip_fraction"] = avg_clip_fraction
 
                 # log
-                log_msg = f"GRPO Step {grpo_step}, Global Step {global_step}: loss={avg_loss:.4f}, entropy={avg_entropy:.4f}, grad_norm={avg_grad_norm:.4f}, train_reward={reward_stat['mean']:.4f}"
+                log_msg = f"GRPO Step {grpo_step}, Global Step {global_step}: loss={avg_loss:.6f}, entropy={avg_entropy:.6f}, grad_norm={avg_grad_norm:.6f}, train_reward={reward_stat['mean']:.6f}"
                 if avg_clip_fraction is not None:
                     log_msg += f", clip_fraction={avg_clip_fraction:.4f}"
 
