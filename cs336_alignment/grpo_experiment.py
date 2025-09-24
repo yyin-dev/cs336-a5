@@ -406,8 +406,8 @@ def main(
 
                 logging.info(log_msg)
 
-                # evaluate every N steps
-                if (global_step + 1) % eval_every_n_steps == 0:
+                # evaluate every N grpo steps
+                if (grpo_step + 1) % eval_every_n_steps == 0:
                     load_policy_into_vllm_instance(model, eval_model)
 
                     eval_res = evaluate_vllm(
