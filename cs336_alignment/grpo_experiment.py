@@ -137,6 +137,8 @@ def main(
 
     # wandb initialization
     name = f"grpo-{loss_type.value}-rollout{rollout_batch_size}-grp{group_size}-lr{learning_rate}-epoch{epochs_per_rollout_batch}-train_bs{train_batch_size}"
+    if use_std_normalization:
+        name += "-stdnorm"
     if length_normalization:
         name += "-lengthnorm"
     wandb.init(
