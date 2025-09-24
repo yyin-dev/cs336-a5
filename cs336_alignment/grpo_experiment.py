@@ -212,10 +212,11 @@ def main(
     total_optimizer_steps = (
         rollout_batch_size * epochs_per_rollout_batch * n_grpo_steps // train_batch_size
     )
-    warmup_steps = total_optimizer_steps // 20
+    warmup_ratio = 0.03
+    warmup_steps = int(total_optimizer_steps * warmup_ratio)
     lr_scheduler = CosineWarmupScheduler(
         optimizer,
-        total_optimizer_steps // 20,
+        warmup_steps,
         total_optimizer_steps,
         learning_rate,
         1e-8,
