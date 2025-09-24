@@ -116,6 +116,7 @@ def main(
     cliprange: float = 0.2,
     eval_every_n_steps: int = 5,
     length_normalization: bool = False,
+    enable_lr_scheduling: bool = False,
 ):
     assert rollout_batch_size * epochs_per_rollout_batch % train_batch_size == 0
 
@@ -141,6 +142,8 @@ def main(
         name += "-stdnorm"
     if length_normalization:
         name += "-lengthnorm"
+    if enable_lr_scheduling:
+        name += "-lrschedule"
     wandb.init(
         project="grpo-experiment",
         name=name,
@@ -158,6 +161,7 @@ def main(
             "use_std_normalization": use_std_normalization,
             "cliprange": cliprange,
             "length_normalization": length_normalization,
+            "enable_lr_schedule": enable_lr_scheduling,
         },
     )
 
@@ -215,18 +219,22 @@ def main(
     total_optimizer_steps = (
         rollout_batch_size * epochs_per_rollout_batch * n_grpo_steps // train_batch_size
     )
-    warmup_ratio = 0.03
-    warmup_steps = int(total_optimizer_steps * warmup_ratio)
-    lr_scheduler = CosineWarmupScheduler(
-        optimizer,
-        warmup_steps,
-        total_optimizer_steps,
-        learning_rate,
-        1e-8,
-    )
-    logging.info(
-        f"total optimizer steps: {total_optimizer_steps}, warmup_steps: {warmup_steps}"
-    )
+    if enable_lr_scheduling:
+        warmup_ratio = 0.03
+        warmup_steps = int(total_optimizer_steps * warmup_ratio)
+        lr_scheduler = CosineWarmupScheduler(
+            optimizer,
+            warmup_steps,
+            total_optimizer_steps,
+            learning_rate,
+            1e-8,
+        )
+        logging.info(
+            f"total optimizer steps: {total_optimizer_steps}, warmup_steps: {warmup_steps}"
+        )
+    else:
+        lr_scheduler = None
+        logging.info(f"total optimizer steps: {total_optimizer_steps}")
 
     # Outer loop
     for grpo_step in range(n_grpo_steps):
@@ -358,7 +366,8 @@ def main(
             if (train_step + 1) % gradient_accumulation_steps == 0:
                 optimizer.step()
                 optimizer.zero_grad()
-                lr_scheduler.step()
+                if lr_scheduler is not None:
+                    lr_scheduler.step()
 
                 # calculate global step
                 num_optimizer_steps_per_grpo_step = (
@@ -379,7 +388,11 @@ def main(
                     "loss": avg_loss,
                     "token_entropy": avg_entropy,
                     "grad_norm": avg_grad_norm,
-                    "lr": lr_scheduler.get_last_lr()[0],
+                    "lr": (
+                        lr_scheduler.get_last_lr()[0]
+                        if lr_scheduler is not None
+                        else learning_rate
+                    ),
                     "train_reward_mean": reward_stat["mean"],
                 }
 

@@ -27,6 +27,7 @@ class GRPOExperimentConfig:
     length_normalization: bool = False
     cliprange: float = 0.2
     eval_every_n_steps: int = 5
+    enable_lr_scheduling: bool = False
 
     # Dataset parameters
     train_dataset: str = "./data/math/train"
@@ -88,6 +89,11 @@ class GRPOExperimentConfig:
             "--eval-every-n-steps",
             str(self.eval_every_n_steps),
         ]
+
+        if self.enable_lr_scheduling:
+            args.append("--enable-lr-scheduling")
+
+        return args
 
     def description(self) -> str:
         """Get a human-readable description of this config."""
