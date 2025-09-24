@@ -417,12 +417,12 @@ def main(
                         test_ground_truth_strs,
                         eval_sampling_params,
                     )
-                    reward_stat = eval_res.reward_stat
-                    wandb_data["eval_reward_mean"] = reward_stat["final"]["mean"]
+                    eval_reward_stat = eval_res.reward_stat
+                    wandb_data["eval_reward_mean"] = eval_reward_stat["final"]["mean"]
 
                     # log evaluation results
                     logging.info(
-                        f"Evaluation at step {global_step}: final_reward={reward_stat['final']['mean']:.4f}, format_reward={reward_stat['format']['mean']:.4f}, answer_reward={reward_stat['answer']['mean']:.4f}"
+                        f"Evaluation at step {global_step}: final_reward={eval_reward_stat['final']['mean']:.4f}, format_reward={eval_reward_stat['format']['mean']:.4f}, answer_reward={eval_reward_stat['answer']['mean']:.4f}"
                     )
 
                 wandb.log(wandb_data)
