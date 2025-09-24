@@ -107,12 +107,7 @@ def load_policy_into_vllm_instance(policy: PreTrainedModel, llm: LLM):
     Copied from https://github.com/huggingface/trl/blob/
     22759c820867c8659d00082ba8cf004e963873c1/trl/trainer/grpo_trainer.py#L670.
     """
-    # Handle torch.compile wrapped models by accessing the original model
-    if hasattr(policy, '_orig_mod'):
-        state_dict = policy._orig_mod.state_dict()
-    else:
-        state_dict = policy.state_dict()
-
+    state_dict = policy.state_dict()
     llm_model = llm.llm_engine.model_executor.driver_worker.model_runner.model
     llm_model.load_weights(state_dict.items())
 

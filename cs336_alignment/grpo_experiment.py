@@ -173,13 +173,12 @@ def main(
     )
 
     # models
-    pretrained_model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
+    model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
         QWEN,
         torch_dtype=torch.bfloat16,
         attn_implementation="flash_attention_2",
         device_map=train_device,
     )
-    model = torch.compile(pretrained_model)
 
     tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(QWEN)
     eval_model = init_vllm(QWEN, eval_device, SEED, gpu_memory_utilization)
