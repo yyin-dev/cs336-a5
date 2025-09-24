@@ -84,16 +84,16 @@ class GRPOExperimentConfig:
                 if self.length_normalization
                 else "--no-length-normalization"
             ),
+            (
+                "--enable-lr-scheduling"
+                if self.enable_lr_scheduling
+                else "--no-enable-lr-scheduling"
+            ),
             "--cliprange",
             str(self.cliprange),
             "--eval-every-n-steps",
             str(self.eval_every_n_steps),
         ]
-
-        if self.enable_lr_scheduling:
-            args.append("--enable-lr-scheduling")
-
-        return args
 
     def description(self) -> str:
         """Get a human-readable description of this config."""
@@ -106,15 +106,60 @@ learning_rate_sweep = [GRPOExperimentConfig(learning_rate=lr) for lr in learning
 
 # Define parameter combinations to test
 EXPERIMENT_CONFIGS = [
-    # masked_normalize
+    # off-policy sweep
     GRPOExperimentConfig(
         learning_rate=3e-5,
-        length_normalization=True,
-    ),
-    # std normalization
-    GRPOExperimentConfig(
-        learning_rate=3e-5,
+        length_normalization=False,
         use_std_normalization=False,
+        loss_type="grpo_clip",
+        epochs_per_rollout_batch=1,
+        train_batch_size=128,
+        n_grpo_steps=30,
+    ),
+    GRPOExperimentConfig(
+        learning_rate=1e-5,
+        length_normalization=False,
+        use_std_normalization=False,
+        loss_type="grpo_clip",
+        epochs_per_rollout_batch=1,
+        train_batch_size=64,
+        n_grpo_steps=40,
+    ),
+    GRPOExperimentConfig(
+        learning_rate=3e-5,
+        length_normalization=False,
+        use_std_normalization=False,
+        loss_type="grpo_clip",
+        epochs_per_rollout_batch=2,
+        train_batch_size=512,
+        n_grpo_steps=40,
+    ),
+    GRPOExperimentConfig(
+        learning_rate=3e-5,
+        length_normalization=False,
+        use_std_normalization=False,
+        loss_type="grpo_clip",
+        epochs_per_rollout_batch=2,
+        train_batch_size=256,
+        n_grpo_steps=40,
+    ),
+    GRPOExperimentConfig(
+        learning_rate=3e-5,
+        length_normalization=False,
+        use_std_normalization=False,
+        loss_type="grpo_clip",
+        epochs_per_rollout_batch=2,
+        train_batch_size=128,
+        n_grpo_steps=40,
+    ),
+    GRPOExperimentConfig(
+        learning_rate=1e-5,
+        length_normalization=False,
+        use_std_normalization=False,
+        loss_type="grpo_clip",
+        epochs_per_rollout_batch=2,
+        train_batch_size=64,
+        n_grpo_steps=40,
     ),
 ]
 
