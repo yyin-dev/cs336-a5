@@ -231,9 +231,57 @@ Arguments for `masked_normalize`:
 
 ![image-20250923001241748](https://raw.githubusercontent.com/yyin-dev/image_cloud/main/Picsee/image-20250923001241748_rtUPCx.jpeg)
 
-TODO: Fix learning rate scheduling across training steps
+Yellow: without group std normalization. 
 
-TODO: use `torch.compile` to improve performance.
+Green: with group std normazliation.
+
+Without std normalization performs better. It seems that the loss and gradient norm is on average lower when w/o std normalization (which makes sense b/c the group norm is a number smaller than 1, and dividing by it scales up the loss and gradient).
+
+## Note: learning rate scheduling
+
+GRPO involves an outer loop and an inner loop. Conceptually it's like (consider on-policy)
+
+```
+for grpo_step in range(num_grpo_steps):
+  prompts, ground_truths = sample(train_dataset)
+  rollouts = model.generate(prompts)
+  rewards = rewards(rollouts, ground_truths)
+  old_log_probs = get_log_probs(model, prompts)
+  
+  for step in range(n_train_steps_per_rollout_batch):
+    policy_log_probs = get_log_probs(model, prompts)
+    loss = policy_gradient_loss(policy_log_probs, old_log_probs, rewards, ...)
+    # gradient accumulation
+    # optimizer step
+```
+
+Previously I was applying lr scheduling to the inner loop. And previously we were using `n_train_steps_per_rollout_batch = 1` because `rollout_batch_size = train_batch_size` and `n_epocsh_per_rollout_batch = 1`, so effectively we are using constant learning rate throughout the process.
+
+We updated to apply lr scheduling across the every optimizer steps in this commit: https://github.com/yyin-dev/cs336-a5/commit/26e72fb1699a046a2bc2934d7be4bf817a0eba59
+
+However, it seems that the model learns better with a large lr from the very beginning.
+
+![image-20250924133456426](https://raw.githubusercontent.com/yyin-dev/image_cloud/main/Picsee/image-20250924133456426_Pb8Xz4.jpeg)
+
+This is especially puzzling given that we are doing a very small number of warmup steps, and in the run with lr-scheduling, the lr is very close to the peak lr...
+
+## Note: attempt to use `torch.compile`
+
+I tried using `torch.compile` to improve performance. The code runs but I observed significantly worse training results.
+
+* without torch.compile: https://wandb.ai/yueyin-dev-weights-biases/grpo-experiment/runs/pvkweazs/overview
+* with torch.compile: https://wandb.ai/yueyin-dev-weights-biases/grpo-experiment/runs/mr9r1h8b/overview
+
+I Googled and discussed with ChatGPT, and it seems that `torch.compile` might cause numerical divergence because:
+
+* it might introduce numerical instability when fusing ops
+* if the model contains conditionals or dynamic shapes, `torch.compile` silents inserts graph breaks, which might be numerically different
+
+![image-20250924001805517](https://raw.githubusercontent.com/yyin-dev/image_cloud/main/Picsee/image-20250924001805517_qqjIbU.jpeg)
+
+I also tried `mode="reduce-overhead"`, it fails with error message: RuntimeError: Inplace update to inference tensor outside InferenceMode is not allowed.You can make a clone to get a normal tensor before doing inplace update.See https://github.com/pytorch/rfcs/pull/17 for more details.
+
+I think this means an **inference tensor** (i.e., a tensor created under `torch.inference_mode()` or equivalent internal path) is being modified **in-place**. I don't chase this down...
 
 ## Note: inconsistent/non-deterministic runs
 
@@ -282,3 +330,17 @@ I discussed this with Claude and did some investigation. We considered the follo
     * Even with static dataset, vLLM's core optimization is dynamic batching which is not deterministic. 
     * To maximize determinism, need to set a bunch of other environment variables and flags like `torch.use_deterministic_algorithms(True)`, run with `temperature=0` and `top_p=1.0`, etc. 
 * It's possible that the first run (in blue) was an outlier, and later runs are reasonably consistent...
+
+## problem (grpo_off_policy, grpo_off_policy_sweep)
+
+Results for epoch=1, train_batch_size=64,128,256
+
+![image-20250924134118450](https://raw.githubusercontent.com/yyin-dev/image_cloud/main/Picsee/image-20250924134118450_eb4VVI.jpeg)
+
+## I stopped here...
+
+The non-determinism and training instability is really frustrating. Runs with the exact same hyperparameters produce very different results. For example, lr=3e-5, epoch=2, train_batch_size=256: The difference is particularly large in train_rewards. Also, the training seems to have diverged, but it works totally fine when epoch=1.
+
+![image-20250924134153040](https://raw.githubusercontent.com/yyin-dev/image_cloud/main/Picsee/image-20250924134153040_e6SzY9.jpeg)
+
+I guess I really learned that (1) RL training is unstable and (2) LLMs are non-deterministic (which makes it painful to get reliable/conclusive result...).
