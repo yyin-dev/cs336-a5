@@ -107,15 +107,15 @@ learning_rate_sweep = [GRPOExperimentConfig(learning_rate=lr) for lr in learning
 # Define parameter combinations to test
 EXPERIMENT_CONFIGS = [
     # off-policy sweep
-    GRPOExperimentConfig(
-        learning_rate=3e-5,
-        length_normalization=False,
-        use_std_normalization=False,
-        loss_type="grpo_clip",
-        epochs_per_rollout_batch=1,
-        train_batch_size=256,
-        n_grpo_steps=40,
-    ),
+    # GRPOExperimentConfig(
+    #     learning_rate=3e-5,
+    #     length_normalization=False,
+    #     use_std_normalization=False,
+    #     loss_type="grpo_clip",
+    #     epochs_per_rollout_batch=1,
+    #     train_batch_size=256,
+    #     n_grpo_steps=40,
+    # ),
     # GRPOExperimentConfig(
     #     learning_rate=3e-5,
     #     length_normalization=False,
@@ -134,15 +134,15 @@ EXPERIMENT_CONFIGS = [
         train_batch_size=64,
         n_grpo_steps=40,
     ),
-    GRPOExperimentConfig(
-        learning_rate=3e-5,
-        length_normalization=False,
-        use_std_normalization=False,
-        loss_type="grpo_clip",
-        epochs_per_rollout_batch=2,
-        train_batch_size=512,
-        n_grpo_steps=40,
-    ),
+    # GRPOExperimentConfig(
+    #     learning_rate=3e-5,
+    #     length_normalization=False,
+    #     use_std_normalization=False,
+    #     loss_type="grpo_clip",
+    #     epochs_per_rollout_batch=2,
+    #     train_batch_size=512,
+    #     n_grpo_steps=40,
+    # ),
     GRPOExperimentConfig(
         learning_rate=3e-5,
         length_normalization=False,
