@@ -326,7 +326,7 @@ I discussed this with Claude and did some investigation. We considered the follo
 * There are some vLLM non-determinism even though I'm using `seed` in rollout `SamplingParams`, which caused rollouts to be non-deterministic. We printed out sampled rollout at the first step and it looks the same across runs. However, this doesn't guarantee that vLLM is deterministic when `seed` is set. 
   * vLLM non-determinism even with a single GPU and static dataset
     * Parallel GPU operations: GPU is massively parallel and floating-point math is not associative, meaing `(a+b)+c` is not always equal to `a + (b+c)` due to floating point imprecision. 
-    * Compounding erros: due to the autoregressive nature of LLM inference, small difference can compound. 
+    * Compounding errors: due to the autoregressive nature of LLM inference, small difference can compound. Update: this is probably the culprit! https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/
     * Even with static dataset, vLLM's core optimization is dynamic batching which is not deterministic. 
     * To maximize determinism, need to set a bunch of other environment variables and flags like `torch.use_deterministic_algorithms(True)`, run with `temperature=0` and `top_p=1.0`, etc. 
 * It's possible that the first run (in blue) was an outlier, and later runs are reasonably consistent...
